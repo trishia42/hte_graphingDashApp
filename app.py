@@ -6,9 +6,9 @@ import dash_bootstrap_components as dbc
 import base64, io
 import plotly.graph_objects as go
 from plotly.graph_objects import Figure
-from miscFunctions import convert_categorical, item_exists_in_array, check_row_column_provided, \
+from miscellaneousFunctions import convert_categorical, item_exists_in_array, check_row_column_provided, \
     check_additional_row_column_variables, convert_extract_df_columns
-from plotlygraphs import generate_parallel_coordinates_graph, generate_scatter_bubble_graph, generate_heatmap_graph, \
+from graphingFunctions import generate_parallel_coordinates_graph, generate_scatter_bubble_graph, generate_heatmap_graph, \
     generate_piecharts_graph
 
 
