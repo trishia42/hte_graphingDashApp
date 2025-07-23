@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import plotly.colors as pc
 import math
 import numpy as np
-from miscFunctions import convert_categorical, get_discrete_colorscale
+from miscellaneousFunctions import convert_categorical, get_discrete_colorscale
 
 
 def generate_parallel_coordinates_graph(df, parallel_variables, color_variable, color_scale, graph_title,
