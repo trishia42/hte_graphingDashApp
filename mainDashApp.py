@@ -94,6 +94,7 @@ pd.set_option('display.max_rows', None)
 pd.set_option('display.max_columns', None)
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
+server = app.server
 app.title = "Data Visualization Dashboard"
 
 # Actual app layout
