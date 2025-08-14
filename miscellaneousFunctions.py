@@ -18,8 +18,6 @@ def item_exists_in_array(columns_array, item): #not used anywhere apparently?
 
 def update_dataframe_data(df, column_name=None, category_suffix='_encoded', catNaNValue='None'):
     original_cols = list(df.columns)
-    #numeric_cols, categorical_cols, encoded_categorical_cols = convert_extract_df_columns(df, None, category_suffix)
-
     cat_types = {}
     columns_to_process = df.columns if column_name is None else [column_name]
     categorical_cols = []
