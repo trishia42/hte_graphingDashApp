@@ -252,8 +252,12 @@ app.layout = dbc.Container([
             html.Div(id='upload-output', style={'padding': '0.625rem', 'marginLeft':'0.5rem', 'fontSize':'0.8rem'}),
         ], width=sidebar_width, style={'borderRight': '0.075rem solid #ddd', 'overflowY': 'scroll', 'height':'100vh', 'scrollbarwidth':'none', 'msOverflowStyle':'none'}),
         dbc.Col([
-            html.Div(id='app-note', children='App will spin down after 15 minutes of inactivity, requiring another 50-60 seconds to reactivate.  This is a work in progress; please notify me of any issues you encounter.', \
-                    style={'backgroundColor': '#f8f9fa','padding': '0.125rem 0.125rem', 'marginBottom': '0.3rem', 'marginTop': '0.3rem', 'fontSize': '0.75rem', 'width': '100%','fontStyle':'italic'}),
+            html.Div(id='app-note', children=[
+                'App will spin down after 15 minutes of inactivity, requiring another 50-60 seconds to reactivate.  This is a work in progress; please report of any issues at the ',
+                html.A('GitHub Repository', href='https://github.com/trishia42/hte_graphingDashApp', target='_blank', style={'color': '#1f77b4', 'textDecoration': 'underline'}), '.'
+                ],
+                style={'backgroundColor': '#f8f9fa','padding': '0.125rem 0.125rem', 'marginBottom': '0.3rem', 'marginTop': '0.3rem', 'fontSize': '0.75rem', 'width': '100%','fontStyle':'italic'}),
+
             html.Div(id='status-bar', children='Status', style={'backgroundColor': '#f8f9fa', 'border': '0.075rem solid #ccc','padding': '0.5rem 0.75rem', 'marginBottom': '0.5rem', 'marginTop': '0.3rem', \
                     'fontWeight': 'bold', 'fontSize': '0.875rem', 'width': '100%',}),
 

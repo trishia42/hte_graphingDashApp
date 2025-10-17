@@ -14,7 +14,7 @@ axis_titlefont, axis_tickfont = dict(size=17, family='Times New Roman', color='d
 axis_tickstyle, axis_tickstep = dict(tickfont=axis_tickfont, ticks='outside', tickcolor='black', ticklen=5), 10
 colorbar_titlefont, colorbar_tickfont = dict(size=15, family='Times New Roman', color='black', weight='bold'), dict(size=12, family='Times New Roman', color='black')
 initial_colorbar_dict = dict(title='', tickfont=colorbar_tickfont, x=1.03, y=-0.015, xref='paper', yref='paper', xanchor='left', yanchor='bottom', lenmode='fraction', len=1.03, dtick=axis_tickstep)
-graph_titlefont, hoverlabel_font =dict(color='black', family='Times New Roman', size=20, weight='bold'), dict(bgcolor='white', font_size=14, font_family='Arial', font_color='black', bordercolor='black')
+graph_titlefont, hoverlabel_font =dict(color='black', family='Times New Roman', size=18, weight='bold'), dict(bgcolor='white', font_size=14, font_family='Arial', font_color='black', bordercolor='black')
 legend_font = dict(family='Times New Roman', size=14)
 marker_symbols = ['circle', 'square', 'diamond', 'x', 'triangle-up', 'pentagon', 'star', 'cross', 'triangle-down', 'hexagon', 'hourglass', 'triangle-se', 'triangle-sw', 'star-triangle-down', 'square-x', 'hexagram']  # preferred symbols
 plotly_all_marker_symbols = marker_symbols + [symbol for symbol in ValidatorCache.get_validator('scatter.marker', 'symbol').values[2::3] if symbol not in marker_symbols]
