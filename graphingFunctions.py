@@ -1,5 +1,5 @@
 import pandas as pd
-from pandas.api.types import CategoricalDtype, is_numeric_dtype, is_object_dtype
+from pandas.api.types import CategoricalDtype, is_numeric_dtype, is_object_dtype, union_categoricals
 import plotly.graph_objects as go
 from plotly.validator_cache import ValidatorCache
 from plotly.subplots import make_subplots
@@ -21,28 +21,26 @@ plotly_all_marker_symbols = marker_symbols + [symbol for symbol in ValidatorCach
 plotly_all_marker_patterns = ['', 'x', '/', '.', '+', '|', '-', '\\']
 dfs_delimiter, default_single_marker, zero_value_marker = '|=%', {'symbol': 'circle' , 'color': 'indigo', 'size':10, 'surfaceSize':2},  {'symbol': '-open', 'size':5}
 
-def generate_parallel_coordinates_graph(dfs, parallel_variables, color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_col, number_of_dfs, graph_title, \
+def generate_parallel_coordinates_graph(dfs, parallel_variables, color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_title, \
                                         category_suffix, plate_variables_columns):
 
-    if color_variable:
-        for key, subdf in dfs.items():
-            dfs[key][color_variable] = subdf[color_variable].fillna(0).copy()  # currently we convert those rows to 0 from NaN, but do we want to drop them instead?
-    dfs_combined = pd.concat(dfs.values(), ignore_index=True)
-
+    # Note - pd.concat() will upcast categorical columns to the object type unless all input dataframes have identical category definitions, so we want to avoid doing this
+    ##dfs_combined = pd.concat(dfs.items(), ignore_index=True)
     if color_variable not in parallel_variables:
         parallel_variables.append(color_variable)
 
     plots=[]
     for graph_index, (key, df_i) in enumerate(dfs.items()):
+        dfs[key][dfs[key].select_dtypes(include='number').columns] = dfs[key][dfs[key].select_dtypes(include='number').columns].fillna(0) # fill all NaN numerical with 0's
         plot_dimensions = []
         for col in parallel_variables:
             if col == split_by_variable: #or col == multi_dataframes_id_col: # we don't include these
                 continue
-            _, axis_min, axis_max, axis_tickvals, axis_ticktext, axis_dtick = set_axis_arguments(dfs_combined, col, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle) # global to all here
+            axis_dict = get_axis_dict(dfs, graph_index, col, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, category_suffix) # global to all here
             if col == color_variable:
-                colorbar_min, colorbar_max = axis_min, axis_max
-            range = [axis_max, axis_min] if col.lower() == 'row' else [axis_min, axis_max] # reverse if row to follow plate configuration with alpha characters
-            plot_dimensions.append(dict(range=range, tickvals=axis_tickvals, ticktext=axis_ticktext, label=col, values=df_i[col + category_suffix] if isinstance(df_i[col].dtype, CategoricalDtype) else df_i[col]))
+                colorbar_min, colorbar_max = axis_dict['range'][0], axis_dict['range'][1]  ##axis_min, axis_max
+            range = [axis_dict['range'][1], axis_dict['range'][0]] if col.lower() == 'row' or col.lower() == 'column' else [axis_dict['range'][0], axis_dict['range'][1]] # reverse if row to follow plate configuration with alpha characters
+            plot_dimensions.append(dict(range=range, tickvals=axis_dict['tickvals'], ticktext=axis_dict['ticktext'], label=col, values=df_i[col + category_suffix] if isinstance(df_i[col].dtype, CategoricalDtype) else df_i[col]))
 
         line_dict = dict(
             color=df_i[color_variable],
@@ -64,10 +62,10 @@ def generate_parallel_coordinates_graph(dfs, parallel_variables, color_variable,
         if hasattr(fig.data[0].line, 'colorbar') and fig.data[0].line.colorbar is not None:
             if len(fig.data[0].line.colorbar.to_plotly_json()) > 0:
                 fig.add_annotation(text=color_variable, font=colorbar_titlefont, textangle=0, showarrow=False, xref='paper', yref='paper', x=fig.data[0].line.colorbar.x + 0.0075, y=fig.data[0].line.colorbar.y + fig.data[0].line.colorbar.len, xanchor='left', yanchor='bottom')
-        graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, graph_index, dfs_delimiter)
-        if graph_title_updated:
-            fig.add_annotation(text=graph_title_updated, font=graph_titlefont, xref='paper', yref='paper', x=-0.05, y=1.15, xanchor='left', yanchor='top', showarrow=False)
+
+        graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter)
         fig.update_layout(
+            title=dict(text=graph_title_updated, font=graph_titlefont, x=0, xanchor='left', y=0.97, yanchor='top', automargin=True) if graph_title_updated not in [None, ''] else None,
             margin = dict(t=110 if graph_title_updated not in [None, ''] else 60),
             shapes=[dict(type='rect', xref='paper', yref='paper', x0=0, y0=0, x1=1, y1=1, line=dict(color='darkgrey', width=1), layer='above')],
         )
@@ -76,7 +74,7 @@ def generate_parallel_coordinates_graph(dfs, parallel_variables, color_variable,
     return plots
 
 def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_variable, z_variable, scatter_surface, size_variable, symbol_variable, color_variable, colorscale, split_by_variable, \
-                                  plate_rows_as_alpha, multi_dataframes_id_col, number_of_dfs, graph_title, category_suffix, plate_variables_columns):
+                                  plate_rows_as_alpha, multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns):
 
     def add_hover_and_custom_data(df_or_series, custom_data, hover_lines, insert_or_append, col=None, is_numeric=False, insert_index=0, fmt=':.2f', hover_label=None, added_labels=None):
         if isinstance(df_or_series, pd.Series):
@@ -107,135 +105,112 @@ def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_varia
         added_labels.add(label)
 
     # Set some defaults
-    default_size_legend_points, default_size_legend_round_value, marker_shadow, marker_shadow_offset_x, marker_shadow_offset_y, marker_shadow_add_size, axis_padding = 4, 5, False, 0.00125, 0.003125, 0.02, 0.5
-    minimum_marker_px, maximum_marker_px, minimum_marker_cat_px, maximum_marker_cat_px, legend_marker_min_px, legend_marker_max_px = 5, 40, 10, 25, 5, 15 # there is a maximum in plotly legends so need to keep legend_marker_max_px small
-    initial_marker_dict, subplots_max_cols = dict(line=dict(width=1, color='DarkSlateGrey'), opacity=1.0), 3
-    set_axis_as_categorical = True
+    initial_marker_dict, minimum_marker_px, maximum_marker_px  = dict(line=dict(width=1, color='DarkSlateGrey'), opacity=1.0), 5, 40
+    legend_marker_min_px, legend_marker_max_px, default_size_legend_points, default_size_legend_round_value  = 5, 15, 4, 5 # there's a max for legend, so must be kept smallish
+    marker_shadow, marker_shadow_offset_x, marker_shadow_offset_y, marker_shadow_add_size, subplots_max_cols, axis_padding = False, 0.00125, 0.003125, 0.02, 3, 0.5
+    # Note that with non-sequential rows/columns on an axis due to splitting, the marker_shadows would work when axis was set to numerical but tickmarks were still evenly spaced (gaps);
+    # if we set it to categorical, gaps were gone but marker-shadows could not longer be plotted alongside as they are numerical - note that as stricly categorical, all values were still shown.
 
-    scatter_subplots = bool(x_variables_subplots)
-    scatter_3d = bool(z_variable and not scatter_subplots)
-    if not scatter_subplots:
-        # Remove any lines that are missing x/y; they will end up plotted as empty points; note that this filters/slices df in place and becomes a view (SLICE) or the original dataframe, so we would get a warning
-        # when trying to perform actions on the df that you're manipulating a view; adding .copy() ensures we are then working with a new independant dataframe (which is what we want)
-        for key, df_i in dfs.items():
-            if x_variable not in plate_variables_columns and is_numeric_dtype(dfs[key][x_variable]): # fill values with 0
-                dfs[key][x_variable] = dfs[key][x_variable].fillna(0)
-            if y_variable not in plate_variables_columns and is_numeric_dtype(dfs[key][y_variable]):
-                dfs[key][y_variable] = dfs[key][y_variable].fillna(0)
-            dfs[key] = df_i[df_i[y_variable].notna() & df_i[x_variable].notna() & (df_i[y_variable].astype(str).str.strip() != '') & (df_i[x_variable].astype(str).str.strip() != '')].copy().reset_index(drop=True)
-    else:
-        marker_shadow, x_variable = False, None # for now
-
-    dfs_combined = pd.concat(dfs.values(), ignore_index=True)
-
-    # First we need to unify size, symbol, color across all dataframes;
-    if x_variable:
-        global_xaxis_dict = set_axis_arguments(dfs_combined, x_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, axis_padding=axis_padding)[0]
-    global_yaxis_dict = set_axis_arguments(dfs_combined, y_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, is_y_variable=True, axis_padding=axis_padding)[0]
-    if z_variable:
-        global_zaxis_dict = set_axis_arguments(dfs_combined, z_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, axis_padding=axis_padding)[0]
+    for key, df_i in dfs.items(): # We remove rows where x or y were not defined here, and we fill the numerical NaNs with 0's;
+        if x_variable and x_variable.lower() in plate_variables_columns:
+            dfs[key] = dfs[key][dfs[key][x_variable].notna() & (dfs[key][x_variable].astype(str).str.strip() != '')].reset_index(drop=True)
+        if y_variable and y_variable.lower() in plate_variables_columns:
+            dfs[key] = dfs[key][dfs[key][y_variable].notna() & (dfs[key][y_variable].astype(str).str.strip() != '')].reset_index(drop=True)
+        if z_variable and z_variable.lower() in plate_variables_columns:
+            dfs[key] = dfs[key][dfs[key][z_variable].notna() & (dfs[key][z_variable].astype(str).str.strip() != '')].reset_index(drop=True)
+        dfs[key][dfs[key].select_dtypes(include='number').columns] = dfs[key][dfs[key].select_dtypes(include='number').columns].fillna(0)
 
     size_zero_mask = [None]*len(dfs)
     if size_variable:
-        size_variable_column = size_variable if is_numeric_dtype(dfs_combined[size_variable]) else size_variable + category_suffix
+        size_variable_column = size_variable if all(is_numeric_dtype(df[size_variable]) for df in dfs.values()) else size_variable + category_suffix
         global_minimum_size_value, global_maximum_size_value = min(df_i[size_variable_column].min().min() for df_i in dfs.values()), max(df_i[size_variable_column].max().max() for df_i in dfs.values())
         global_size_value_range = (global_maximum_size_value - global_minimum_size_value) if (global_maximum_size_value - global_minimum_size_value) != 0 else 1
-        dfs_combined['marker_size'] = (dfs_combined[size_variable_column] - global_minimum_size_value) / (global_size_value_range) * (maximum_marker_px - minimum_marker_px) + minimum_marker_px
         for i, (key, df_i) in enumerate(dfs.items()):
-            if size_variable_column in df_i.columns:
-                if is_numeric_dtype(dfs_combined[size_variable]):
-                    dfs[key][size_variable] = dfs[key][size_variable].fillna(0)
-                    size_zero_mask[i] = df_i[size_variable] == 0
-                    df_i.loc[(size_zero_mask[i]), 'marker_size'] = zero_value_marker['size']
-                else:
-                    size_zero_mask[i] = pd.Series(False, index=df_i.index)
-                df_i['marker_size'] = (df_i[size_variable_column] - global_minimum_size_value) / (global_size_value_range) * (maximum_marker_px - minimum_marker_px) + minimum_marker_px
+            if all(is_numeric_dtype(df[size_variable]) for df in dfs.values()):
+                size_zero_mask[i] = dfs[key][size_variable] == 0
+                dfs[key].loc[(size_zero_mask[i]), 'marker_size'] = zero_value_marker['size']
+            else:
+                size_zero_mask[i] = pd.Series(False, index=dfs[key].index)
+            dfs[key]['marker_size'] = (dfs[key][size_variable_column] - global_minimum_size_value) / (global_size_value_range) * (maximum_marker_px - minimum_marker_px) + minimum_marker_px
     else:
         for i, (key, df_i) in enumerate(dfs.items()):
-            df_i['marker_size'] = default_single_marker['surfaceSize'] if scatter_3d and scatter_surface else default_single_marker['size']
-            size_zero_mask[i] = pd.Series(False, index=df_i.index)
+            dfs[key]['marker_size'] = default_single_marker['surfaceSize'] if z_variable and scatter_surface else default_single_marker['size']
+            size_zero_mask[i] = pd.Series(False, index=dfs[key].index)
 
     symbol_zero_mask = [None]*len(dfs)
+    global_marker_symbol_map, global_marker_color_map = None, None
     if symbol_variable:
-        global_marker_symbol_map = {item: plotly_all_marker_symbols[i % len(plotly_all_marker_symbols)] for i, item in enumerate(dfs_combined[symbol_variable].unique())}
+        global_marker_symbol_map = set_global_map(dfs, symbol_variable, None, plotly_all_marker_symbols)
         for i, (key, df_i) in enumerate(dfs.items()):
-            if symbol_variable in df_i.columns:
-                if is_numeric_dtype(dfs_combined[symbol_variable]):
-                    dfs[key][symbol_variable] = dfs[key][symbol_variable].fillna(0)
-                    symbol_zero_mask[i] = df_i[symbol_variable] == 0
-                else:
-                    symbol_zero_mask[i] = pd.Series(False, index=df_i.index)
-                df_i['marker_symbol'] = df_i[symbol_variable].map(global_marker_symbol_map)
+            if all(is_numeric_dtype(df[symbol_variable]) for df in dfs.values()):
+                symbol_zero_mask[i] = dfs[key][symbol_variable] == 0
+            else:
+                symbol_zero_mask[i] = pd.Series(False, index=dfs[key].index)
+            dfs[key]['marker_symbol'] = dfs[key][symbol_variable].map(global_marker_symbol_map)
     else:
         for i, (key, df_i) in enumerate(dfs.items()):
-            df_i['marker_symbol'] = default_single_marker['symbol']
-            symbol_zero_mask[i] = pd.Series(False, index=df_i.index)
+            dfs[key]['marker_symbol'] = default_single_marker['symbol']
+            symbol_zero_mask[i] = pd.Series(False, index=dfs[key].index)
 
     for i, (key, df_i) in enumerate(dfs.items()):
         zero_mask = size_zero_mask[i] | symbol_zero_mask[i]
-        if isinstance(df_i['marker_symbol'], pd.Series):
-            df_i['marker_symbol'] = df_i['marker_symbol'].astype(str)
-            df_i.loc[zero_mask, 'marker_symbol'] = (df_i.loc[zero_mask, 'marker_symbol'] + zero_value_marker['symbol']) if '-open' not in df_i.loc[zero_mask, 'marker_symbol'] else df_i.loc[zero_mask, 'marker_symbol']
+        if isinstance(dfs[key]['marker_symbol'], pd.Series):
+            dfs[key]['marker_symbol'] = dfs[key]['marker_symbol'].astype(str)
+            dfs[key].loc[zero_mask, 'marker_symbol'] = (dfs[key].loc[zero_mask, 'marker_symbol'] + zero_value_marker['symbol']) if '-open' not in dfs[key].loc[zero_mask, 'marker_symbol'] else dfs[key].loc[zero_mask, 'marker_symbol']
         else:
-            marker_symbols_array = np.full(len(df_i), df_i['marker_symbol'], dtype=object)
+            marker_symbols_array = np.full(len(dfs[key]), dfs[key]['marker_symbol'], dtype=object)
             marker_symbols_array[zero_mask] = [str(sym) + zero_value_marker['symbol'] if '-open' not in str(sym) else str(sym) for sym in marker_symbols_array[zero_mask]]
 
-    global_marker_color_map = None
     if color_variable:
-        if not is_numeric_dtype(dfs_combined[color_variable]):
-            global_marker_color_map = {color: get_discrete_colorscale(colorscale, len(dfs_combined[color_variable].dropna().unique()))[i % len(get_discrete_colorscale(colorscale, len(dfs_combined[color_variable].dropna().unique())))]
-                for i, color in enumerate(dfs_combined[color_variable].dropna().unique())}
+        if all(isinstance(df[color_variable].dtype, CategoricalDtype) for df in dfs.values()):
+            global_marker_color_map = set_global_map(dfs, color_variable, colorscale)
             for key, df_i in dfs.items():
-                if color_variable in df_i.columns:
-                    df_i['marker_color'] = df_i[color_variable].map(global_marker_color_map)
+                if color_variable in dfs[key].columns:
+                    dfs[key]['marker_color'] = dfs[key][color_variable].map(global_marker_color_map)
         else:
-            _, global_colorbar_cmin, global_colorbar_cmax, _, _, _ = set_axis_arguments(dfs_combined, color_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle)
+            colorbar_axis_dict = get_axis_dict(dfs, -1, color_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, category_suffix)
             for key, df_i in dfs.items():
-                if color_variable in df_i.columns:
-                    dfs[key][color_variable] = dfs[key][color_variable].fillna(0)
-                    df_i['marker_color'] = df_i[color_variable]
+                if color_variable in dfs[key].columns:
+                    dfs[key]['marker_color'] = dfs[key][color_variable]
     else:
         for key, df_i in dfs.items():
-            df_i['marker_color'] = default_single_marker['color']
+            dfs[key]['marker_color'] = default_single_marker['color']
 
     plots = []
     max_figure_columns, max_figure_rows = 0, 0
     for graph_index, (key, df_i) in enumerate(dfs.items()):
         if x_variable:
-            local_xaxis_dict = set_axis_arguments(df_i, x_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, axis_padding=axis_padding)[0] if \
-                x_variable.lower() in plate_variables_columns else global_xaxis_dict
-        local_yaxis_dict = set_axis_arguments(df_i, y_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, is_y_variable=True, axis_padding=axis_padding)[0] if \
-            y_variable.lower() in plate_variables_columns else global_yaxis_dict
+            xaxis_dict = get_axis_dict(dfs, graph_index, x_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, category_suffix, axis_padding=axis_padding)
+        yaxis_dict = get_axis_dict(dfs, graph_index, y_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, category_suffix, is_y_variable=True, axis_padding=axis_padding)
         if z_variable:
-            local_zaxis_dict = set_axis_arguments(df_i, z_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, axis_padding=axis_padding)[0] if \
-                z_variable.lower() in plate_variables_columns else global_zaxis_dict
+            zaxis_dict = get_axis_dict(dfs, graph_index, z_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, category_suffix, axis_padding=axis_padding)
 
         custom_data, hover_lines, added_labels = [], [], set()
         marker_dict = initial_marker_dict.copy()
-        if df_i.empty:
-            continue
-        if not scatter_subplots: # may need to combine this in the future and also allow more flexibility with alpha/row/column assignments
-            if y_variable.lower() == 'row' and plate_rows_as_alpha:  # convert rows to alphanumeric characters for the hover template
-                if x_variable and x_variable.lower() == 'column':
-                    # df.apply applies a function across the dataframe, lambda creates an unnamed function (here taking a single argument 'row' and axis=1 means it's applied row by row, axis=0 would be column by column
-                    df_i['well_label'] = df_i.apply(lambda row: f'{chr(64 + int(row[y_variable]))}{int(row[x_variable])}' if plate_rows_as_alpha else f'{int(row[y_variable])}, {int(row[x_variable])}', axis=1)
-                    add_hover_and_custom_data(df_i, custom_data, hover_lines, 'insert', 'well_label', False, 0, None, added_labels=added_labels)
-                else:
-                    # here we select a single column in the dataframe and it's applied element-by-element (one-dimensional series)
-                    df_i['row_letter'] = df_i[y_variable].apply(lambda r: chr(64 + int(r))) if plate_rows_as_alpha else df_i[y_variable]
-                    add_hover_and_custom_data(df_i, custom_data, hover_lines, 'insert', 'row_letter', False, 0, None, y_variable, added_labels)
+
+        if is_numeric_dtype(df_i[y_variable]) and y_variable.lower() == 'row' and plate_rows_as_alpha:  # convert rows to alphanumeric characters for the hover template
+            if x_variable and is_numeric_dtype(df_i[x_variable]) and x_variable.lower() == 'column':
+                # df.apply applies a function across the dataframe, lambda creates an unnamed function (here taking a single argument 'row' and axis=1 means it's applied row by row, axis=0 would be column by column
+                df_i['well_label'] = df_i.apply(lambda row: f'{chr(64 + int(row[y_variable]))}{int(row[x_variable])}' if plate_rows_as_alpha else f'{int(row[y_variable])}, {int(row[x_variable])}', axis=1)
+                add_hover_and_custom_data(df_i, custom_data, hover_lines, 'insert', 'well_label', False, 0, None, added_labels=added_labels)
+            else:
+                # here we select a single column in the dataframe and it's applied element-by-element (one-dimensional series)
+                df_i['row_letter'] = df_i[y_variable].apply(lambda r: chr(64 + int(r))) if plate_rows_as_alpha else df_i[y_variable]
+                add_hover_and_custom_data(df_i, custom_data, hover_lines, 'insert', 'row_letter', False, 0, None, y_variable, added_labels)
+                if x_variable:
                     hover_lines.insert(1, f'{x_variable}: %{{x}}')
-            else:  # just put x, y
+        else:  # just put x, y
+            if x_variable:
                 hover_lines.extend([f'{y_variable}: %{{y}}', f'{x_variable}: %{{x}}'])
                 added_labels.add(x_variable)
                 if (y_variable.lower() != x_variable.lower()):
                     added_labels.add(y_variable)
-        else:
-            hover_lines.extend([f'{y_variable}: %{{y}}']) # just add y here
-            added_labels.add(y_variable)
+            else:
+                hover_lines.extend([f'{y_variable}: %{{y}}'])
+                added_labels.add(y_variable)
 
         if x_variable:
-             x_vals = df_i[x_variable] if not isinstance(df_i[x_variable].dtype, CategoricalDtype) else df_i[x_variable + category_suffix]
+            x_vals = df_i[x_variable] if not isinstance(df_i[x_variable].dtype, CategoricalDtype) else df_i[x_variable + category_suffix]
         y_vals = df_i[y_variable] if not isinstance(df_i[y_variable].dtype, CategoricalDtype) else df_i[y_variable + category_suffix]
 
         if x_variable:
@@ -246,10 +221,10 @@ def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_varia
             if df_i[y_variable].nunique(dropna=True) > max_figure_rows:
                 max_figure_rows= df_i[y_variable].nunique(dropna=True)
 
-        if scatter_3d:
+        if z_variable:
             z_vals = df_i[z_variable + category_suffix] if (isinstance(df_i[z_variable].dtype, CategoricalDtype)) else df_i[z_variable]
             hover_lines.extend([f'{z_variable}: %{{z}}'])
-            if (z_variable.lower() != x_variable.lower() and z_variable.lower() != y_variable.lower()):
+            if z_variable not in added_labels:
                 added_labels.add(z_variable)
 
         if size_variable not in [None, 'None']:
@@ -265,7 +240,7 @@ def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_varia
         else:
             text_data = df_i[x_variable] if x_variable else None
 
-        if scatter_subplots:
+        if x_variables_subplots:
             if len(x_variables_subplots) <= subplots_max_cols:
                 subplots_rows, subplots_columns = 1, len(x_variables_subplots)
             else:
@@ -277,7 +252,7 @@ def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_varia
         marker_dict.update(dict(size=df_i['marker_size'], symbol=df_i['marker_symbol']))
         if color_variable:
             if is_numeric_dtype(df_i[color_variable]):
-                marker_dict.update(dict(color=df_i[color_variable], cmin=global_colorbar_cmin , cmax=global_colorbar_cmax, showscale=True, colorscale=colorscale, colorbar=initial_colorbar_dict.copy()))
+                marker_dict.update(dict(color=df_i[color_variable], cmin=colorbar_axis_dict['range'][0], cmax=colorbar_axis_dict['range'][1], showscale=True, colorscale=colorscale, colorbar=initial_colorbar_dict.copy()))
             else:
                 marker_dict.update(dict(color=df_i['marker_color']))
         else:
@@ -286,25 +261,26 @@ def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_varia
         if marker_shadow:  # Visual effect for fun - was disabled up top since breaks if we make the numerical axis categorical...
             marker_dict_shadow = marker_dict.copy()
             marker_dict_shadow.update(size=marker_dict['size'] + (marker_dict['size']*marker_shadow_add_size), color='rgba(50, 50, 50, 0.35)', opacity=1.0, line=dict(width=0), showscale=False)
-            if (isinstance(df_i[x_variable].dtype, CategoricalDtype)):
-                marker_shadow_offset_x_dfi = marker_shadow_offset_x * len(df_i[x_variable].cat.categories)
-                x_vals_shadow = [x_val + marker_shadow_offset_x_dfi for x_val in df_i[x_variable + category_suffix]]
-            else:
-                marker_shadow_offset_x_dfi = marker_shadow_offset_x * df_i[x_variable].nunique()
-                x_vals_shadow = [x_val + marker_shadow_offset_x_dfi for x_val in df_i[x_variable]]
-            if (isinstance(df_i[y_variable].dtype, CategoricalDtype)):
+            if x_variable: # note - was never updated for subplots and x_variables_subplots since was abandoned for the time being
+                if isinstance(df_i[x_variable].dtype, CategoricalDtype):
+                    marker_shadow_offset_x_dfi = marker_shadow_offset_x * len(df_i[x_variable].cat.categories)
+                    x_vals_shadow = [x_val + marker_shadow_offset_x_dfi for x_val in df_i[x_variable + category_suffix]]
+                else:
+                    marker_shadow_offset_x_dfi = marker_shadow_offset_x * df_i[x_variable].nunique()
+                    x_vals_shadow = [x_val + marker_shadow_offset_x_dfi for x_val in df_i[x_variable]]
+            if isinstance(df_i[y_variable].dtype, CategoricalDtype):
                 marker_shadow_offset_y_dfi = marker_shadow_offset_y * len(df_i[y_variable].cat.categories)
                 y_vals_shadow = ([y_val + marker_shadow_offset_y_dfi for y_val in df_i[y_variable + category_suffix]] if (y_variable.lower() == 'row') else [y_val - marker_shadow_offset_y_dfi / 2 for y_val in df_i[y_variable + category_suffix]])
             else:
                 marker_shadow_offset_y_dfi = marker_shadow_offset_y * df_i[y_variable].nunique()
                 y_vals_shadow = ([y_val + marker_shadow_offset_y_dfi for y_val in df_i[y_variable]] if (y_variable.lower() == 'row') else [y_val - marker_shadow_offset_y_dfi / 2 for y_val in df_i[y_variable]])
-            if scatter_3d:
+            if z_variable:
                 fig.add_trace(go.Scatter3d(x=x_vals_shadow, y=y_vals_shadow, z=z_vals, mode='markers', marker=marker_dict_shadow, name='', showlegend=False, hoverinfo='skip'))
             else:
                 fig.add_trace(go.Scatter(x=x_vals_shadow, y=y_vals_shadow, mode='markers', marker=marker_dict_shadow, name='', showlegend=False, hoverinfo='skip'))
 
         # combines list of arrays into a single 2D numpy array; axis=-1 means stacking is done column-wise to each row
-        if scatter_3d:
+        if z_variable: # we currently do not allow subplots and 3d-scatter at the UI level
             if scatter_surface:
                 x_vals_data = df_i[x_variable + category_suffix] if isinstance(df_i[x_variable].dtype, CategoricalDtype) else df_i[x_variable]
                 y_vals_data = df_i[y_variable + category_suffix] if isinstance(df_i[y_variable].dtype, CategoricalDtype) else df_i[y_variable]
@@ -313,12 +289,15 @@ def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_varia
                 z_vals_surface = griddata((x_vals_data, y_vals_data), z_vals_data, (x_vals_surface, y_vals_surface), method='linear')  # Interpolate z values onto grid
                 surface_color = None
                 if color_variable:
-                    if is_numeric_dtype(dfs_combined[color_variable]):
+                    if all(is_numeric_dtype(df[color_variable]) for df in dfs.values()):
                         surface_colorscale = colorscale
                     else:
                         surface_colorscale = []
-                        surface_colorscale = [[(i - 1) / (len(dfs_combined[color_variable].cat.categories) - 1), global_marker_color_map[cat]] \
-                                                 for i, cat in enumerate(dfs_combined[color_variable].cat.categories, start=1)]
+                        all_categories = []
+                        for df_i in dfs.values():
+                            all_categories.extend(df_i[color_variable].dropna().unique())
+                        surface_colorscale = [[(i - 1) / (len(list(dict.fromkeys(all_categories))) - 1) if len(list(dict.fromkeys(all_categories))) > 1 else 0, \
+                                               global_marker_color_map[cat]] for i, cat in enumerate(list(dict.fromkeys(all_categories)), start=1)]
                         surface_color = griddata((x_vals_data, y_vals_data), df_i[color_variable + category_suffix], (x_vals_surface, y_vals_surface), method='linear')
                 else:
                     surface_colorscale = [[0, default_single_marker['color']], [1, default_single_marker['color']]]
@@ -326,16 +305,16 @@ def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_varia
             fig.add_trace(go.Scatter3d(x=x_vals, y=y_vals, z=z_vals, mode='markers', marker=marker_dict, text=text_data, customdata=np.stack(custom_data, axis=-1) if custom_data else None, \
                                        hovertemplate='<br>'.join(hover_lines) + '<extra></extra>', name='', showlegend=False))
         else:
-            if scatter_subplots:
+            if x_variables_subplots:
                 subplot_row, subplot_col = 1, 1
                 for k, x_var in enumerate(x_variables_subplots):
-                    x_subplot_data = df_i[x_var].cat.codes + 1 if isinstance(df_i[x_var].dtype, pd.CategoricalDtype) else df_i[x_var]
+                    x_subplot_data = df_i[x_var].cat.codes + 1 if isinstance(df_i[x_var].dtype, CategoricalDtype) else df_i[x_var]
                     fig.add_trace(go.Scatter(x=x_subplot_data, y=df_i[y_variable], mode='markers', marker=marker_dict, text=text_data, customdata=np.stack(custom_data, axis=-1) if custom_data else None, hovertemplate='<br>'.join(hover_lines) + '<extra></extra>', \
                                              name='', showlegend=False),row=subplot_row, col=subplot_col)
                     # we use local no matter what for x_axis and update it for the x_var loop
-                    local_xaxis_dict = set_axis_arguments(df_i, x_var, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, axis_padding=axis_padding)[0]
-                    fig.update_xaxes(title_text=x_var, **local_xaxis_dict, row=subplot_row, col=subplot_col)
-                    fig.update_yaxes(title_text=y_variable, **local_yaxis_dict, row=subplot_row, col=subplot_col)
+                    local_xaxis_dict = get_axis_dict(dfs, graph_index, x_var, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, category_suffix, axis_padding=axis_padding)
+                    fig.update_xaxes(title_text=x_var, **local_xaxis_dict, row=subplot_row, col=subplot_col, automargin=True)
+                    fig.update_yaxes(title_text=y_variable, **yaxis_dict, row=subplot_row, col=subplot_col, automargin=True)
                     subplot_row, subplot_col = subplot_row if subplot_col <= subplots_max_cols else subplot_row + 1, subplot_col + 1 if subplot_col < subplots_max_cols else 1
                 for k in range(1, len(x_variables_subplots) + 1):
                     x_domain = fig.layout[f"xaxis{k if k > 1 else ''}"].domain
@@ -345,64 +324,71 @@ def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_varia
                 fig.add_trace(go.Scatter(x=x_vals, y=y_vals, mode='markers', marker=marker_dict, text=text_data, customdata=np.stack(custom_data, axis=-1) if custom_data else None, \
                                         hovertemplate='<br>'.join(hover_lines) + '<extra></extra>', name='', showlegend=False))
         # Final layout adjustments
-        if not scatter_3d and color_variable:
+        if not z_variable and color_variable:
             colorbar_trace_index = 0 + int(marker_shadow) if fig.data[0 + int(marker_shadow)].marker.showscale else None
-        elif scatter_3d and color_variable: # and not scatter_surface:
+        elif z_variable and color_variable: # and not scatter_surface:
             colorbar_trace_index = 0 + int(marker_shadow) + int(scatter_surface) if fig.data[0 + int(marker_shadow) + int(scatter_surface)].marker.showscale else None
         else:
             colorbar_trace_index = None
-        if colorbar_trace_index:
+        if colorbar_trace_index is not None:
             fig.add_annotation(text=color_variable, font=colorbar_titlefont, textangle=0, showarrow=False, xref='paper', yref='paper', \
                                 x=(fig.data[colorbar_trace_index].marker.colorbar.x + 0.0075), \
                                 y=(fig.data[colorbar_trace_index].marker.colorbar.y + fig.data[colorbar_trace_index].marker.colorbar.len),  \
                                 xanchor='left', yanchor='bottom')
 
-        graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, graph_index, dfs_delimiter)
-        if graph_title_updated:
-            fig.add_annotation(text=graph_title_updated, font=graph_titlefont, xref='paper', yref='paper', x=-0.075, y=1.1, xanchor='left', yanchor='top', showarrow=False)
-        top_margin = 70 if graph_title_updated not in [None, ''] else 60
+        graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter)
         fig.update_layout(
-            margin=dict(t=top_margin, l=10, r=10, b=10),
+            title=dict(text=graph_title_updated, font=graph_titlefont, x=0, xanchor='left', y=0.97, yanchor='top', automargin=True) if graph_title_updated not in [None, ''] else None,
+            margin=dict(t=80 if graph_title_updated not in [None, ''] else 60),
             legend=dict(orientation='h', yanchor='top', y=-0.15, xanchor='right', x=1, font=legend_font, itemsizing='trace'),
             template='plotly_white',
             hoverlabel=hoverlabel_font,
             autosize=True
         )
 
-        if not scatter_subplots: # otherwise already done in loop;
-            if not scatter_3d:
+        if not x_variables_subplots: # otherwise already done in loop;
+            if not z_variable:
                 fig.update_layout(
-                    xaxis=dict(title=dict(text=x_variable, font=axis_titlefont, standoff=30), **local_xaxis_dict),
-                    yaxis=dict(title=dict(text=y_variable, font=axis_titlefont, standoff=30), **local_yaxis_dict),
+                    xaxis=dict(title=dict(text=x_variable, font=axis_titlefont), **xaxis_dict, automargin=True),
+                    yaxis=dict(title=dict(text=y_variable, font=axis_titlefont), **yaxis_dict, automargin=True),
                     shapes=[dict(type='rect', xref='paper', yref='paper', x0=0, y0=0, x1=1, y1=1, line=dict(color='black', width=1), layer='above')],
                 )
-                if set_axis_as_categorical:
-                    if x_variable.lower() in plate_variables_columns:
-                        fig.update_xaxes(range=None, type='category', categoryorder='array', categoryarray=df_i[x_variable])
-                    if y_variable.lower() in plate_variables_columns:
-                        fig.update_yaxes(range=None, type='category', categoryorder='array', categoryarray=df_i[y_variable])
+                if x_variable.lower() in plate_variables_columns:
+                    fig.update_xaxes(range=[-axis_padding, len(xaxis_dict['tickvals']) + (axis_padding - 1)], type='category', categoryorder='array')
+                if y_variable.lower() in plate_variables_columns:
+                    fig.update_yaxes(range=[-axis_padding, len(yaxis_dict['tickvals']) + (axis_padding - 1)], type='category', categoryorder='array')
             else: # scatter_3d
+                xaxis_dict['tickfont']['size'] = 12 # we may want to unify this later
+                yaxis_dict['tickfont']['size'] = 12
+                zaxis_dict['tickfont']['size'] = 12
                 fig.update_layout(
                     scene=dict(bgcolor='white',
-                            xaxis = dict(title=dict(text=x_variable, font=axis_titlefont), **local_xaxis_dict, showbackground=True, backgroundcolor='lightgrey', gridcolor='white', gridwidth=2, zerolinecolor='black', zerolinewidth=3, showspikes=False),
-                            yaxis = dict(title=dict(text=y_variable, font=axis_titlefont), **local_yaxis_dict, showbackground=True, backgroundcolor='lightgrey', gridcolor='white', gridwidth=2, zerolinecolor='black', zerolinewidth=3),
-                            zaxis = dict(title=dict(text=z_variable, font=axis_titlefont), **local_zaxis_dict, showbackground=True, backgroundcolor='lightgrey', gridcolor='white', gridwidth=2, zerolinecolor='black', zerolinewidth=3)
+                            xaxis = dict(title=dict(text=x_variable, font=axis_titlefont), **xaxis_dict, showbackground=True, backgroundcolor='lightgrey', gridcolor='white', gridwidth=2, zerolinecolor='black', zerolinewidth=3, showspikes=False, automargin=True),
+                            yaxis = dict(title=dict(text=y_variable, font=axis_titlefont), **yaxis_dict, showbackground=True, backgroundcolor='lightgrey', gridcolor='white', gridwidth=2, zerolinecolor='black', zerolinewidth=3, automargin=True),
+                            zaxis = dict(title=dict(text=z_variable, font=axis_titlefont), **zaxis_dict, showbackground=True, backgroundcolor='lightgrey', gridcolor='white', gridwidth=2, zerolinecolor='black', zerolinewidth=3, automargin=True)
                             ),
                     scene_camera=dict(eye=dict(x=2, y=-2, z=0.8)),
                 )
+                if x_variable.lower() in plate_variables_columns:
+                    fig.update_scenes(xaxis=dict(range=[-axis_padding, len(xaxis_dict['tickvals']) + (axis_padding - 1)], type='category', categoryorder='array'))
+                if y_variable.lower() in plate_variables_columns:
+                    fig.update_scenes(yaxis=dict(range=[-axis_padding, len(yaxis_dict['tickvals']) + (axis_padding - 1)], type='category', categoryorder='array'))
+                if x_variable.lower() in plate_variables_columns:
+                    fig.update_scenes(zaxis=dict(range=[-axis_padding, len(zaxis_dict['tickvals']) + (axis_padding - 1)], type='category', categoryorder='array'))
 
         # Add dummy traces for symbol, size, color variables so that we can have legends for them
         if symbol_variable and symbol_variable != split_by_variable:
             for item, symbol in global_marker_symbol_map.items():
-                display_name = f'{item:.1f}' if isinstance(item, (int, float, numbers.Integral)) else str(item)
-                if not scatter_3d:
-                    fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(symbol=symbol, size=10, color='black'), name=display_name, legendgroup='symbol_legend', showlegend=True))
-                else:
-                    fig.add_trace(go.Scatter3d(x=[None], y=[None], z=[None], mode='markers', marker=dict(symbol=symbol, size=10, color='black'), name=display_name, legendgroup='symbol_legend', showlegend=True, hoverinfo='skip'))
+                if item in df_i[symbol_variable].values:
+                    display_name = f'{item:.1f}' if isinstance(item, (int, float, numbers.Integral)) else str(item)
+                    if not z_variable:
+                        fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(symbol=symbol, size=10, color='black'), name=display_name, legendgroup='symbol_legend', showlegend=True))
+                    else:
+                        fig.add_trace(go.Scatter3d(x=[None], y=[None], z=[None], mode='markers', marker=dict(symbol=symbol, size=10, color='black'), name=display_name, legendgroup='symbol_legend', showlegend=True, hoverinfo='skip'))
 
         size_legend_values = None
         if size_variable and size_variable != split_by_variable:
-            if is_numeric_dtype(dfs_combined[size_variable]):
+            if all(is_numeric_dtype(df[size_variable]) for df in dfs.values()):
                 legend_min = max(default_size_legend_round_value, math.floor(global_minimum_size_value / default_size_legend_round_value) * default_size_legend_round_value)
                 legend_max = math.ceil(global_maximum_size_value / default_size_legend_round_value) * default_size_legend_round_value
                 vals = np.linspace(legend_min, legend_max, default_size_legend_points)
@@ -411,14 +397,20 @@ def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_varia
                     for val in vals
                 ]
             else:
-                category_sizes = dfs_combined[[size_variable, 'marker_size']].drop_duplicates().sort_values('marker_size')
+                all_category_sizes = []
+                for df_j in dfs.values():
+                    if size_variable in df_j.columns and 'marker_size' in df_j.columns: # always should be
+                        all_category_sizes.extend(df_j[[size_variable, 'marker_size']].dropna().to_dict('records'))
+                category_sizes = pd.DataFrame(all_category_sizes).drop_duplicates().sort_values('marker_size')
                 category_sizes['legend_marker_size_px'] = ((category_sizes['marker_size'] - category_sizes['marker_size'].min()) / (category_sizes['marker_size'].max() - category_sizes['marker_size'].min()) * (legend_marker_max_px - legend_marker_min_px) + legend_marker_min_px
                     if category_sizes['marker_size'].max() > category_sizes['marker_size'].min() else legend_marker_min_px)
                 size_legend_values = list(zip(category_sizes[size_variable], category_sizes['legend_marker_size_px']))  # creates a list of tuples from the two columns in cat_sizes
+
             for val, px in size_legend_values:
-                val_str = f'{val:.1f}' if isinstance(val, (int, float, numbers.Integral)) else str(val)
-                display_name = f'{size_variable} = {val_str}' if size_variable else val_str
-                if not scatter_3d:
+                if all(isinstance(df[size_variable].dtype, CategoricalDtype) for df in dfs.values()) and val not in df_i[size_variable].values:
+                    continue
+                display_name = f'{val:.1f}' if isinstance(val, (int, float, numbers.Integral)) else str(val)
+                if not z_variable:
                     fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(size=px, color='black', opacity=0.5, line=dict(width=0.5, color='gray')), name=display_name, \
                                              legendgroup='size_legend', showlegend=True))
                 else:
@@ -427,29 +419,28 @@ def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_varia
 
         if global_marker_color_map and color_variable != split_by_variable:
             for item, color in global_marker_color_map.items():
-                if not scatter_3d:
-                    fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(size=10, color=color), name=str(item), legendgroup='color_legend', showlegend=True))
-                else:
-                    fig.add_trace(go.Scatter3d(x=[None], y=[None], z=[None], mode='markers', marker=dict(size=10, color=color), name=str(item), legendgroup='color_legend', showlegend=True))
+                if item in df_i[color_variable].values:
+                    if not z_variable:
+                        fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(size=10, color=color), name=str(item), legendgroup='color_legend', showlegend=True))
+                    else:
+                        fig.add_trace(go.Scatter3d(x=[None], y=[None], z=[None], mode='markers', marker=dict(size=10, color=color), name=str(item), legendgroup='color_legend', showlegend=True))
 
         plots.append(fig)
 
     return plots
 
 def generate_heatmap_graph(dfs, row_variable, column_variable, color_variable, additional_row_variable, additional_column_variable, z_smooth_option, colorscale, split_by_variable, plate_rows_as_alpha, \
-                           multi_dataframes_id_col, number_of_dfs, graph_title, plate_variables_columns):
+                           multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns):
 
     # Remove any lines that are missing row/column, clean up additional_row/column_variables;
     for key, df_i in dfs.items():
-        dfs[key] = df_i[df_i[row_variable].notna() & df_i[column_variable].notna() & (df_i[row_variable].astype(str).str.strip() != '') & (df_i[column_variable].astype(str).str.strip() != '')].copy()
-    dfs_combined = pd.concat(dfs.values(), ignore_index=True)
-    dfs_combined = dfs_combined[dfs_combined[row_variable].notna() & dfs_combined[column_variable].notna() & (dfs_combined[row_variable].astype(str).str.strip() != '') & (dfs_combined[column_variable].astype(str).str.strip() != '')].copy()
+        dfs[key] = dfs[key][dfs[key][row_variable].notna() & dfs[key][column_variable].notna() & (dfs[key][row_variable].astype(str).str.strip() != '') & (dfs[key][column_variable].astype(str).str.strip() != '')].reset_index(drop=True)
 
     additional_row_variable = additional_row_variable if isinstance(additional_row_variable, list) else ([] if additional_row_variable else [additional_row_variable])
     additional_column_variable = additional_column_variable if isinstance(additional_column_variable, list) else ([] if additional_column_variable else [additional_column_variable])
 
     plots = []
-    max_figure_columns, max_figure_rows = 0, 0
+    max_figure_columns, max_figure_rows, max_axis_labels_len = 0, 0, 6
     x_domain, y_domain = [0, 0.90], [0, 1] # attempt at sizing graphs proportionally...
     for graph_index, (key, df_i) in enumerate(dfs.items()):
         # disabled above for now; will split dataframes if they exist, but left the code as a placeholder for now
@@ -463,16 +454,16 @@ def generate_heatmap_graph(dfs, row_variable, column_variable, color_variable, a
         add_new_figure = True
 
         z_hover_labels = df_i.pivot(index=row_variable, columns=column_variable, values=color_variable)
-        _, global_zaxis_min, global_zaxis_max, global_zaxis_tickvals, global_zaxis_ticktext, _ = set_axis_arguments(dfs_combined, color_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle)
+        global_zaxis_dict = get_axis_dict(dfs, -1, color_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, category_suffix)
         all_rows, all_cols = df_i[row_variable].dropna().unique(), df_i[column_variable].dropna().unique()
-        if (isinstance(df_i[color_variable].dtype, CategoricalDtype)):
+        if isinstance(df_i[color_variable].dtype, CategoricalDtype):
             z_categorical = df_i.pivot_table(index=row_variable, columns=column_variable, values=color_variable, aggfunc=lambda x: x.mode().iloc[0] if not x.mode().empty else np.nan)
             category_to_number = {cat: i + 1 for i, cat in enumerate(list(df_i[color_variable].cat.categories))}
             heatmap_data = z_categorical.map(lambda val: category_to_number.get(val, np.nan))
-            colorscale = get_discrete_colorscale(colorscale, len(list(dfs_combined[color_variable].cat.categories)))
+            colorscale = get_discrete_colorscale(colorscale, len(sorted({str(v) for df_j in dfs.values() for v in df_j[color_variable].dropna().unique()}))) # this will end up global due to how we assigned categories
             show_colorbar = False
         else:
-            heatmap_data = df_i.pivot_table(index=row_variable, columns=column_variable, values=color_variable, aggfunc='mean')  # .sort_index().sort_index(axis=1)
+            heatmap_data = df_i.pivot_table(index=row_variable, columns=column_variable, values=color_variable, aggfunc='mean', observed=False)  # .sort_index().sort_index(axis=1)
             show_colorbar = True
         heatmap_data = heatmap_data.reindex(index=all_rows, columns=all_cols)
 
@@ -492,8 +483,8 @@ def generate_heatmap_graph(dfs, row_variable, column_variable, color_variable, a
                     item = df_i.groupby(row_variable, observed=False)[var].agg(lambda x: x.unique()[0]).to_dict().get(row, 'Unknown')
                     additional_row_variable_dict[row][var] = str(item)
             colorbar_dict = initial_colorbar_dict.copy()
-            if global_zaxis_tickvals and global_zaxis_ticktext:
-                colorbar_dict.update(tickvals=global_zaxis_tickvals, ticktext=global_zaxis_ticktext)
+            if global_zaxis_dict['tickvals'] and global_zaxis_dict['ticktext']:
+                colorbar_dict.update(tickvals=global_zaxis_dict['tickvals'], ticktext=global_zaxis_dict['ticktext'])
             z_smooth_option = False if z_smooth_option == 'False' else z_smooth_option
 
         # if graphs end up being superimposed here (more than one df detected with Row/Column, but no multi_dataframes_id_col specified), the data from last set is on top
@@ -530,8 +521,8 @@ def generate_heatmap_graph(dfs, row_variable, column_variable, color_variable, a
                 colorscale=colorscale,
                 showscale=show_colorbar,
                 colorbar=colorbar_dict if show_colorbar else None,
-                zmin=global_zaxis_min,
-                zmax=global_zaxis_max,
+                zmin=global_zaxis_dict['range'][0],
+                zmax=global_zaxis_dict['range'][1],
                 zsmooth=z_smooth_option,
                 hovertemplate=hovertemplate,
             ))
@@ -541,18 +532,24 @@ def generate_heatmap_graph(dfs, row_variable, column_variable, color_variable, a
                 fig.add_annotation(text=color_variable, font=colorbar_titlefont, textangle=0, showarrow=False, xref='paper', yref='paper', x=fig.data[0].colorbar.x + 0.0075, y=fig.data[0].colorbar.y + fig.data[0].colorbar.len, xanchor='left', yanchor='bottom')
             else:
                 for category, color in zip(df_i[color_variable].cat.categories, colorscale):
-                    fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(size=10, color=color), legendgroup='color_categories', showlegend=True, name=str(category)))
+                    if category in df_i[color_variable].values:
+                        fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(size=10, color=color), legendgroup='color_categories', showlegend=True, name=str(category)))
 
             # Add axis labels on x-axis, including for additional_column_variable if applicable (columns)
+            #max_label_len = df_i[additional_column_variable + [column_variable]].astype(str).apply(lambda col: col.map(len)).max().max()
+            #textangle = 0 if max_label_len <= max_axis_labels_len else 315
+            xaxis_ticklabels = []
             for i, x_val in enumerate(heatmap_data.columns):
                 if additional_column_variable:
                     label_text = f"{f'{x_val:.0f}' if isinstance(x_val, (int, float, numbers.Integral)) and not pd.isna(x_val) else x_val}<br>" + \
                                  '<br>'.join([additional_column_variable_dict.get(x_val, {}).get(var, 'Unknown') for var in additional_column_variable])
                 else:
                     label_text = f"{f'{x_val:.0f}' if isinstance(x_val, (int, float, numbers.Integral)) and not pd.isna(x_val) else x_val}"
-                fig.add_annotation(x=i, y=-0.01, xref='x', yref='paper', text=label_text, showarrow=False, xanchor='center', yanchor='top', align='center')
+                xaxis_ticklabels.append(label_text)
+                ##fig.add_annotation(x=i, y=-0.01, xref='x', yref='paper', text=label_text, showarrow=False, xanchor='center', yanchor='top', align='center', textangle=0) # keep for now in case we want to revert
 
             # Add axis labels on y-axis, inluding for additional_row_variable if applicable (rows)
+            yaxis_ticklabels = []
             for i, y_val in enumerate(heatmap_data.index):
                 alpha_label = chr(64 + int(y_val)) if plate_rows_as_alpha else int(y_val)
                 if additional_row_variable:
@@ -560,7 +557,8 @@ def generate_heatmap_graph(dfs, row_variable, column_variable, color_variable, a
                     label_text = f'{alpha_label}<br>{row_meta}'
                 else:
                     label_text = alpha_label
-                fig.add_annotation(x=-0.01, y=i, xref='x domain', yref='y', text=label_text, showarrow=False, xanchor='right', yanchor='middle', align='center')
+                yaxis_ticklabels.append(label_text)
+                #fig.add_annotation(x=-0.01, y=i, xref='x domain', yref='y', text=label_text, showarrow=False, xanchor='right', yanchor='middle', align='center', textangle=0)
 
             n_rows, n_cols = heatmap_data.shape
             if n_rows > max_figure_rows:
@@ -568,20 +566,19 @@ def generate_heatmap_graph(dfs, row_variable, column_variable, color_variable, a
             if n_cols > max_figure_columns:
                 max_figure_columns = n_cols
 
-            graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, graph_index, dfs_delimiter)
-            if graph_title_updated:
-                fig.add_annotation(text=graph_title_updated, font=graph_titlefont, xref='paper', yref='paper', x=-0.075, y=1.1, xanchor='left', yanchor='top', showarrow=False)
-            top_margin = 80 if graph_title_updated not in [None, ''] else 60
-            bottom_margin = 90 if not additional_column_variable else 90 + 20 * (len(additional_column_variable))
-            xaxis_title_standoff = 40 if not additional_column_variable else 40 + 15 * (len(additional_column_variable))
-            yaxis_title_standoff = 40 if not additional_row_variable else 40 + 15 * (len(additional_row_variable))
+            graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter)
             fig.update_layout(
-                margin=dict(t=top_margin, b=bottom_margin),
-                xaxis=dict(title=dict(text=column_variable, font=axis_titlefont), title_standoff=xaxis_title_standoff, type='category', tickmode='array', tickvals=list(heatmap_data.columns), **axis_tickstyle, showticklabels=False, showgrid=False, automargin=True),
-                yaxis=dict(title=dict(text=row_variable, font=axis_titlefont), title_standoff=yaxis_title_standoff, type='category', tickmode='array', tickvals=list(heatmap_data.index), autorange='reversed', **axis_tickstyle, showticklabels=False, showgrid=False, automargin=True),
+                margin=dict(t=80 if graph_title_updated not in [None, ''] else 60, b=90 if not additional_column_variable else 90 + 20 * (len(additional_column_variable))),
+                title=dict(text=graph_title_updated, font=graph_titlefont, x=0, xanchor='left', y=0.97, yanchor='top', automargin=True) if graph_title_updated not in [None, ''] else None,
+                xaxis=dict(title=dict(text=column_variable if not column_variable.endswith('_numeric') else column_variable.removesuffix('_numeric'), font=axis_titlefont), \
+                           title_standoff=40 if not additional_column_variable else 40 + 15 * (len(additional_column_variable)), type='category', tickmode='array', tickvals=list(heatmap_data.columns), \
+                           ticktext=xaxis_ticklabels, **axis_tickstyle, showticklabels=True, showgrid=False, automargin=True, constrain='domain', showline=True, linecolor='black', mirror=True),
+                yaxis=dict(title=dict(text=row_variable if not row_variable.endswith('_numeric') else row_variable.removesuffix('_numeric'), font=axis_titlefont), \
+                           title_standoff=40 if not additional_row_variable else 40 + 15 * (len(additional_row_variable)), type='category', tickmode='array', tickvals=list(heatmap_data.index), \
+                           ticktext=yaxis_ticklabels, autorange='reversed', **axis_tickstyle, showticklabels=True, showgrid=False, automargin=True, scaleanchor='x', scaleratio=1, constrain='domain', \
+                           showline=True, linecolor='black', mirror=True),
                 legend=dict(orientation='v', yanchor='top', y=1.0, xanchor='left', x=1.02, font=legend_font, itemsizing='trace'),
                 hoverlabel=hoverlabel_font,
-                shapes=[dict(type='rect', xref='paper', yref='paper', x0=0, y0=0, x1=1, y1=1, line=dict(color='black', width=1), layer='above')],
                 template='plotly_white',
             )
             plots.append(fig)
@@ -595,8 +592,8 @@ def generate_heatmap_graph(dfs, row_variable, column_variable, color_variable, a
                 colorscale=colorscale,
                 showscale=show_colorbar,
                 colorbar=colorbar_dict if show_colorbar else None,
-                zmin=global_zaxis_min,
-                zmax=global_zaxis_max,
+                zmin=global_zaxis_dict['range'][0],
+                zmax=global_zaxis_dict['range'][1],
                 zsmooth=z_smooth_option,
                 hovertemplate=hovertemplate,
             ))
@@ -604,14 +601,15 @@ def generate_heatmap_graph(dfs, row_variable, column_variable, color_variable, a
     return plots, max_figure_rows, max_figure_columns
 
 def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_variables, additional_row_variable, additional_column_variable, normalization_method, normalization_value, piechart_donut, \
-                             piechart_cakeplots, colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_col, number_of_dfs, multi_dataframes_reverse, graph_title, plate_variables_columns):
+                             piechart_cakeplots, colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_col, number_of_dfs, multi_dataframes_reverse, mdi_single_df, graph_title, category_suffix, plate_variables_columns):
 
     def compute_pie_values_and_labels(values, labels, normalization_method, normalization_value, well_id, pie_index, number_of_pies, key):
+
         pie_border = dict(color='black', width=1)
         values = [max(float(val), 0) if not pd.isna(val) else 0 for val in values] # we convert all negative values to 0 here for now
         all_zero = 0
 
-        if number_of_pies > 1: # then we want to include the series name
+        if number_of_pies > 1: # then we want to include the series name; we don't copy since we want to affect the actual well_id value
             well_id = well_id + ' - ' + key
         if int(all(v == 0 for v in values)):
             pie_vals = [1]
@@ -622,10 +620,9 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
             total = sum(values) or 1
             pie_vals = [(v / total) * 100 for v in values]
             # changed to values from original_values and updated_labels to labels
-            hover_info = [f'{well_id}<br>{label}: {val:.1f}% [{orig:.1f}]' for label, val, orig in
-                          zip(labels, pie_vals, values)]
+            hover_info = [f'{well_id}<br>{label}: {val:.1f}% [{orig:.1f}]' for label, val, orig in zip(labels, pie_vals, values)]
         elif normalization_method == 1:
-            pie_vals = values.copy()
+            pie_vals = values
             total = sum(pie_vals)
             hover_info = [f'{well_id}<br>{label}: {val:.1f}%' for label, val in zip(labels, pie_vals)]
             if total < 100:
@@ -668,12 +665,10 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
         return pie_vals, labels, hover_info, pie_border, all_zero, show_legend
 
     for key, df_i in dfs.items():
-        dfs[key] = df_i[df_i[row_variable].notna() & df_i[column_variable].notna() & (df_i[row_variable].astype(str).str.strip() != '') & (df_i[column_variable].astype(str).str.strip() != '')].copy()
+        dfs[key] = dfs[key][dfs[key][row_variable].notna() & dfs[key][column_variable].notna() & (dfs[key][row_variable].astype(str).str.strip() != '') & (dfs[key][column_variable].astype(str).str.strip() != '')].reset_index(drop=True)
         dfs[key][row_variable] = pd.to_numeric(dfs[key][row_variable], errors='coerce')
         dfs[key][column_variable] = pd.to_numeric(dfs[key][column_variable], errors='coerce')
 
-    dfs_combined = pd.concat(dfs.values(), ignore_index=True)
-    dfs_combined = dfs_combined[dfs_combined[row_variable].notna() & dfs_combined[column_variable].notna() & (dfs_combined[row_variable].astype(str).str.strip() != '') & (dfs_combined[column_variable].astype(str).str.strip() != '')].copy()
     selected_slice_colors_from_colorscale = get_discrete_colorscale(colorscale, len(piecharts_variables))
     piecharts_variables_colors = dict(zip(piecharts_variables, get_discrete_colorscale(colorscale, len(piecharts_variables))))
     piecharts_variables_colors['Unknown'] = 'white'
@@ -722,27 +717,28 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
     #    dfs_grouped['All'] = dfs
     #else:
     #    # Case 1: no split at all
-    #    dfs_grouped['All'] = {'All': list(dfs.values())[0]}
+    #    dfs_grouped['All'] = {'All': list(dfs.items())[0]}
     #< / editor - fold >
 
     dfs_grouped = {} # necessary with the current code but may be simplified in the future
     if split_by_variable:
-        if piechart_cakeplots:
+        if piechart_cakeplots: # {'F1': {'Series 1': data, 'Series 2': data}, 'F2': {'Series 1': data, 'Series 2': data}}
             for key, df_i in dfs.items():
                 series_name, split_var = key.split(dfs_delimiter, 1)
                 dfs_grouped.setdefault(split_var, {})[series_name] = df_i
-        else:
+        else: # {'Series 1[del]F1': {'All': data}, 'Series 1[del]F2': {'All': data}, 'Series 2[del]F1': {'All': data}, 'Series 2[del]F2': {'All': data}}
             for key, df_i in dfs.items():
                 dfs_grouped.setdefault(key, {})['All'] = df_i
     else:
-        if piechart_cakeplots:
+        if piechart_cakeplots: # {'All': {'Series 1': data, 'Series 2': data}}
             dfs_grouped['All'] = dfs
-        else:
+        else: # {'Series 1': {'All': data}, 'Series 2': {'All': data}}
             for key, df_i in dfs.items():
                 dfs_grouped.setdefault(key, {})['All'] = df_i
 
     # Build maps for the additional row/column variables
-    global_plate_rows, global_plate_columns = list(range(1, int(dfs_combined[row_variable].max()) + 1)), list(range(1, int(dfs_combined[column_variable].max()) + 1))
+    global_plate_rows = list(range(int(min(df_i[row_variable].min() for df_i in dfs.values())), int(max(df_i[row_variable].max() for df_i in dfs.values())) + 1))
+    global_plate_columns = list(range(int(min(df_i[column_variable].min() for df_i in dfs.values())), int(max(df_i[column_variable].max() for df_i in dfs.values())) + 1))
     additional_column_variable_hover_map, additional_column_variable_axis_map = {}, {}
     if additional_column_variable:
         if not isinstance(additional_column_variable, list):
@@ -751,7 +747,11 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
             hover_values = []
             axis_values = []
             for var in additional_column_variable:
-                item = dfs_combined.groupby(column_variable, observed=False)[var].agg(lambda x: x.unique()[0]).to_dict().get(col, 'Unknown')
+                result_dict = {}
+                for df_i in dfs.values(): # trying to avoid concat function
+                    grouped = df_i.groupby(column_variable, observed=False)[var].agg(lambda x: x.unique()[0]).to_dict()
+                    result_dict.update(grouped)
+                item = result_dict.get(col, 'Unknown')
                 axis_values.append(str(item))
                 if not any(var in hv for hv in hover_values):
                     hover_values.append(f'{var}: {item}')
@@ -766,7 +766,11 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
             hover_values = []
             axis_values = []
             for var in additional_row_variable:
-                item = dfs_combined.groupby(row_variable, observed=False)[var].agg(lambda x: x.unique()[0]).to_dict().get(row, 'Unknown')
+                result_dict = {}
+                for df_i in dfs.values():
+                    grouped = df_i.groupby(row_variable, observed=False)[var].agg(lambda x: x.unique()[0]).to_dict()
+                    result_dict.update(grouped)
+                item = result_dict.get(col, 'Unknown')
                 axis_values.append(str(item))
                 if not any(var in hv for hv in hover_values):
                     hover_values.append(f'{var}: {item}')
@@ -777,6 +781,8 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
     plots = []
     max_figure_columns, max_figure_rows = 0, 0
     for graph_index, (group_name, series_dict) in enumerate(dfs_grouped.items()):
+        if series_dict is None or len(series_dict) == 0:
+            continue
         plate_rows = sorted({value for df_i in series_dict.values() for value in df_i[row_variable].dropna().unique()})
         plate_columns = sorted({value for df_i in series_dict.values() for value in df_i[column_variable].dropna().unique()})
         max_figure_rows = len(plate_rows) if len(plate_rows) > max_figure_rows else max_figure_rows
@@ -790,7 +796,6 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
             for col_index, col in enumerate(plate_columns):
                 x_center = (col_index + 0.5) * cell_width
                 y_center = 1 - (row_index + 0.5) * cell_height
-
                 # Dealing with additional variables for hover_labels
                 row_meta = additional_row_variable_hover_map.get(row, '') if additional_row_variable else ''
                 col_meta = additional_column_variable_hover_map.get(col, '') if additional_column_variable else ''
@@ -799,6 +804,8 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
                 for series_index, (key, df_i) in enumerate(series_dict.items()):
                     scale_factor = 1/((series_index/2)+1) if number_of_pies > 1 else 1
                     pie_domain = dict(x=[x_center - (pie_width*scale_factor) / 2, x_center + (pie_width*scale_factor) / 2], y=[y_center - (pie_height*scale_factor) / 2, y_center + (pie_height*scale_factor) / 2])
+                    print("pie_domain = ", pie_domain)
+
                     if piechart_shadow:
                         pie_domain_shadow = dict(
                             x=[max(0, pie_domain['x'][0] - (pie_domain['x'][1] - pie_domain['x'][0]) * piechart_shadow_add_size + piechart_shadow_x_offset),
@@ -809,7 +816,7 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
                     row_data = df_i[(df_i[row_variable] == row) & (df_i[column_variable] == col)]
                     if not row_data.empty:
                         row_values = [row_data.iloc[0][var] for var in piecharts_variables]
-                        updated_vals, updated_labels, hover_text, updated_pie_border, all_zero, show_legend = compute_pie_values_and_labels(row_values, piecharts_variables.copy(), \
+                        updated_vals, updated_labels, hover_text, updated_pie_border, all_zero, show_legend = compute_pie_values_and_labels(row_values.copy(), piecharts_variables.copy(), \
                                                                                                                 normalization_method, normalization_value, well_label, series_index, number_of_pies, key)
                         if col_meta or row_meta:
                             meta_text = f"{row_meta}{'<br>' if row_meta and col_meta else ''}{col_meta}"
@@ -824,7 +831,6 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
                         # Add a pattern to the unknown slices and fix the colour;
                         marker_patterns = ['.' if lab == 'Unknown' else '' for lab in updated_labels]
                         updated_colors = ['palegoldenrod' if lab == 'Unknown' else col for lab, col in zip(updated_labels, updated_colors)]
-
                         # Lighten the inner pies some amount
                         updated_colors = [lighten_rgb(c, color_shift_factor) for c in updated_colors]
                         pie_args = {'values': updated_vals, 'labels': updated_labels, 'marker': dict(colors=updated_colors, line=updated_pie_border, pattern=dict(shape=marker_patterns)), \
@@ -838,8 +844,8 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
                         if piechart_shadow:
                             pie_args_shadow = {'values': [1], 'labels': None, 'marker': dict(colors=['lightgrey'], line=None), 'domain': pie_domain_shadow, 'showlegend': False, \
                                             'hoverinfo': 'skip', 'textinfo': 'none',  **({'hole': piechart_hole_size} if piechart_donut else {})}
-                        if series_index == 0:
-                            fig.add_trace(go.Pie(**pie_args_shadow))
+                            if series_index == 0:
+                                fig.add_trace(go.Pie(**pie_args_shadow))
                         fig.add_trace(go.Pie(**pie_args))
 
         # Add dummy pies to add titles to some of the legend; unfortunately can't align them differently
@@ -852,21 +858,37 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
                 fig.add_trace(go.Pie(values=[1], labels=[key], marker=dict(colors=['rgba(255,255,255,0)'], line=None), domain=dummy_trace_domain, showlegend=True, \
                             legendgroup=f'S{series_index + 1}', legendrank=1 + (series_index * 2), hoverinfo='skip', textinfo='none'))
 
-        # Add axis labels on x-axis (columns);
-        column_variable_label_y = 0 - 0.05 - (len(additional_column_variable) if additional_column_variable else 0)*0.05 # was previously -0.08
+        # Update layout
+        if not split_by_variable:
+            group_name = ', '.join(series_dict.keys()) if piechart_cakeplots else group_name
+        else:
+            group_name = ', '.join(series_dict.keys()) + dfs_delimiter + group_name if piechart_cakeplots else group_name
+        graph_title_updated = set_graph_title(group_name, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter)
+        fig.update_layout(
+            title=dict(text=graph_title_updated, font=graph_titlefont, x=0, xanchor='left', y=0.97, yanchor='top', automargin=True) if graph_title_updated not in [None, ''] else None,
+            showlegend=True,
+            legend=dict(x=1.02, y=1, xanchor='left', font=legend_font, itemsizing='constant', tracegroupgap=15, yanchor='top', bgcolor='rgba(255,255,255,0.8)', bordercolor='rgba(0,0,0,0)'),
+            margin=dict(t=80 if graph_title_updated not in [None, ''] else 60, b=90 if not additional_column_variable else 90 + 20*(len(additional_column_variable)), l=130),
+            hoverlabel=hoverlabel_font,
+            shapes=[dict(type='rect', xref='paper', yref='paper', x0=0, y0=0, x1=1, y1=1, line=dict(color='black', width=2), layer='above')], # add rectangle around pie charts to create plate layout
+        )
 
-        fig.add_annotation(x=0.5, y=column_variable_label_y, text=column_variable, showarrow=False, xref='paper', yref='paper', font=axis_titlefont, xanchor='center', yanchor='top')
+        # Add axis labels on x-axis (columns) - after the update_layout because otherwise rectangle was covering tickmarks
+        column_variable_label_y = 0 - 0.05 - (len(additional_column_variable) if additional_column_variable else 0)*0.05 # was previously -0.08
+        fig.add_annotation(x=0.5, y=column_variable_label_y, text=column_variable if not column_variable.endswith('_numeric') else column_variable.removesuffix('_numeric'), showarrow=False, xref='paper', \
+                           yref='paper', font=axis_titlefont, xanchor='center', yanchor='top')
         for col_index, col in enumerate(plate_columns):
-            if any(col in df_i[column_variable].values for df_i in series_dict.values()):
+            if any(col in df[column_variable].values for df in series_dict.values()):
                 x = (col_index + 0.5) * cell_width
                 label_text = f"{int(col)}<br>{additional_column_variable_axis_map.get(col, 'Unknown')}" if additional_column_variable else str(int(col))
                 fig.add_shape(type='line', xref='paper', yref='paper', x0=x, x1=x, y0=0, y1=-0.01, line=dict(color='black', width=1), fillcolor='rgba(0,0,0,0)')
                 fig.add_annotation(x=x, y=-0.01, text=label_text, showarrow=False, xref='paper', yref='paper', font=axis_tickfont, xanchor='center', yanchor='top')
 
         # Add axis labels on y-axis (rows);
-        fig.add_annotation(x=-0.06, y=0.5, text=row_variable, showarrow=False, xref='paper', yref='paper', font=axis_titlefont, xanchor='right', yanchor='middle', textangle=270)
+        fig.add_annotation(x=-0.06, y=0.5, text=row_variable if not row_variable.endswith('_numeric') else row_variable.removesuffix('_numeric'), showarrow=False, xref='paper', yref='paper', \
+                           font=axis_titlefont, xanchor='right', yanchor='middle', textangle=270)
         for row_index, row in enumerate(plate_rows):
-            if any(row in df_i[row_variable].values for df_i in series_dict.values()):
+             if any(row in df[row_variable].values for df in series_dict.values()):
                 y = 1 - (row_index + 0.5) * cell_height
                 label_text = chr(64 + int(row)) if plate_rows_as_alpha else int(row)
                 if additional_row_variable:
@@ -874,48 +896,34 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
                 fig.add_shape(type='line', xref='paper', yref='paper', x0=0, x1=-0.005, y0=y, y1=y, line=dict(color='black', width=1), fillcolor='rgba(0,0,0,0)')
                 fig.add_annotation(x=-0.01, y=y, text=label_text, showarrow=False, xref='paper', yref='paper', font=axis_tickfont, xanchor='right', yanchor='middle')
 
-        # Update layout
-        if not split_by_variable:
-            group_name = ', '.join(series_dict.keys()) if piechart_cakeplots else group_name
-        else:
-            group_name = ', '.join(series_dict.keys()) + dfs_delimiter + group_name if piechart_cakeplots else group_name
-        graph_title_updated = set_graph_title(group_name, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, graph_index, dfs_delimiter)
-        if graph_title_updated:
-            fig.add_annotation(text=graph_title_updated, font=graph_titlefont, xref='paper', yref='paper', x=-0.075, y=1.075, xanchor='left', yanchor='top', showarrow=False)
-        top_margin = 80 if graph_title_updated not in [None, ''] else 60
-        bottom_margin = 90 if not additional_column_variable else 90 + 20*(len(additional_column_variable))
-        fig.update_layout(
-            showlegend=True,
-            legend=dict(x=1.02, y=1, xanchor='left', font=legend_font, itemsizing='constant', tracegroupgap=15, yanchor='top', bgcolor='rgba(255,255,255,0.8)', bordercolor='rgba(0,0,0,0)'),
-            margin=dict(t=top_margin, b=bottom_margin, l=130),
-            hoverlabel=hoverlabel_font,
-            shapes=[dict(type='rect', xref='paper', yref='paper', x0=0, y0=0, x1=1, y1=1, line=dict(color='black', width=2), layer='above')], # add rectangle around pie charts to create plate layout
-        )
         plots.append(fig)
 
     return plots, max_figure_rows, max_figure_columns
 
 
 def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, barchart_group_vars_by, barchart_barmode_option, colorscale, split_by_variable, plate_rows_as_alpha, \
-                            multi_dataframes_id_col, multi_dataframes_reverse, number_of_dfs, graph_title, category_suffix, plate_variables_columns):
+                            multi_dataframes_id_col, multi_dataframes_reverse, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns):
 
-    multi_group_by, barmode, yaxis_tickstep, barchart_shadow = barchart_x, barchart_barmode_option.lower(), 10, True
-    dfs_combined = pd.concat(dfs.values(), ignore_index=True)
+    multi_group_by, barmode, barchart_shadow = barchart_x, barchart_barmode_option.lower(), True
     selected_colors_from_colorscale = get_discrete_colorscale(colorscale, len(barchart_vars))
     #dup_max_x = dfs_combined[barchart_x].value_counts().max() # hold for now
 
+    global_marker_pattern_map = None
     if barchart_pattern:
-        global_marker_pattern_map = {item: plotly_all_marker_patterns[i % len(plotly_all_marker_patterns)] for i, item in enumerate(dfs_combined[barchart_pattern].unique())}
-        global_marker_pattern_assigned = [global_marker_pattern_map[val] for val in dfs_combined[barchart_pattern]]
+        global_marker_pattern_map = set_global_map(dfs, barchart_pattern, None, plotly_all_marker_patterns)
 
-    for key, subdf in dfs.items():
-        if is_numeric_dtype(dfs_combined[barchart_x]):
-            dfs[key][barchart_x] = subdf[barchart_x].fillna(0).copy()  # currently we convert those rows to 0 from NaN, but do we want to drop them instead?
+    # Currently, for x we remove the rows if the variable is N/A and in plate_variables_columns, otherwise is set to 0; for y we just set to 0 for now
+    for key, df_i in dfs.items():
+        if is_numeric_dtype(dfs[key][barchart_x]):
+            if barchart_x.lower() in plate_variables_columns:
+                dfs[key] = dfs[key][dfs[key][barchart_x].notna() & (dfs[key][barchart_x].astype(str).str.strip() != '')].reset_index(drop=True)
+            else:
+                dfs[key][barchart_x] = dfs[key][barchart_x].fillna(0)
         for barchart_var in barchart_vars:
-            if is_numeric_dtype(dfs_combined[barchart_var]):
-                dfs[key][barchart_var] = subdf[barchart_var].fillna(0).copy()
+            if is_numeric_dtype(dfs[key][barchart_var]):
+                dfs[key][barchart_var] = dfs[key][barchart_var].fillna(0)
         if barchart_pattern:
-            subdf['bar_pattern'] = subdf[barchart_pattern].map(global_marker_pattern_map)
+            dfs[key]['bar_pattern'] =dfs[key][barchart_pattern].map(global_marker_pattern_map)
 
     # We create groups here and treat multi_dataframes a bit differently due to the way Plotly barchart graphs handle multiple values for a data point; if multi_dataframes_id_col is specified then
     # it will plot all series on the same graph(s); otherwise duplicates will be stacked or overlayed existing ones.  For separate graphs by multi_dataframes_id_col, one should add a Series column
@@ -936,39 +944,47 @@ def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, ba
     else: # {'All':{'All': [0-23]}} # no grouping
         dfs_grouped['All'] = {'All': list(dfs.values())[0]}
 
-    if isinstance(dfs_combined[barchart_x].dtype, CategoricalDtype):
-        barchart_x = barchart_x + '_encoded'
-    if isinstance(dfs_combined[barchart_vars[0]].dtype, CategoricalDtype): # we're forcing only numerical here so this is useless for now
-        global_yaxis_min = dfs_combined[barchart_vars[0] + '_encoded'].min()
-        global_yaxis_max = dfs_combined[barchart_vars[0] + '_encoded'].max()
-        for i, var in enumerate(barchart_vars):
-            barchart_vars[i] = var + '_encoded'
+    if all(any(isinstance(df[var].dtype, CategoricalDtype) for var in barchart_vars) for df in dfs.values()): # we're forcing only numerical here so this is useless for now
+        all_mins, all_maxs = [], []
+        for df_i in dfs.values():
+            for var in barchart_vars:
+                all_mins.append(df_i[var + category_suffix].min())
+                all_maxs.append(df_i[var + category_suffix].max())
+        global_yaxis_min = min(all_mins)
+        global_yaxis_max = max(all_maxs)
+        barchart_vars = [var + category_suffix for var in barchart_vars]
     else:
         # All graphs should have the same scale and over ALL the barchart_vars
-        yaxis_min = min([dfs_combined[var].min() for var in barchart_vars])
-        yaxis_max = max([dfs_combined[var].max() for var in barchart_vars])
+        global_yaxis_min = min(df_i[var].min() for df_i in dfs.values() for var in barchart_vars if is_numeric_dtype(df_i[var]))
+        global_yaxis_max = max(df_i[var].max() for df_i in dfs.values() for var in barchart_vars if is_numeric_dtype(df_i[var]))
         if barmode == 'stack':
             max_vals = []
             if number_of_dfs == 1:
-                for i, df in dfs.items():
-                    max_vals.append(df[barchart_vars].sum(axis=1).max())
+                for df_i in dfs.values():
+                    max_vals.append(df_i[barchart_vars].sum(axis=1).max())
             else:
-                for var in barchart_vars:
-                    max_vals.append(pd.concat([df[[barchart_x, var]] for df in dfs.values()]).groupby(barchart_x)[var].sum().max())
-            yaxis_max = max(max_vals)
-        global_yaxis_dict, global_yaxis_min, global_yaxis_max, _, _, global_yaxis_dtick = set_axis_arguments(dfs_combined, barchart_vars[0], axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, is_y_variable=True, min_value=yaxis_min, max_value=yaxis_max)
+                stack_map = {}
+                for df_i in dfs.values(): # again, avoiding concat
+                    for _, row in df.iterrows():
+                        x_val = row[barchart_x]
+                        stack_map[x_val] = stack_map.get(x_val, 0) + + sum(row[var] for var in barchart_vars)
+                max_vals.append(max(stack_map.values()))
+            global_yaxis_max = max(max_vals)
+        global_yaxis_dict = get_axis_dict(dfs, -1, barchart_vars[0], axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, category_suffix, is_y_variable=True, min_value=global_yaxis_min, max_value=global_yaxis_max)
 
     yaxis_title, colorbar_title = barchart_vars[0] if len(barchart_vars) == 1 else ', '.join(barchart_vars), barchart_vars[0] if len(barchart_vars) == 1 else 'Y-Axis'
 
     plots = []
     for graph_index, (key, dfs_group) in enumerate(dfs_grouped.items()):
+        if dfs_group is None or len(dfs_group) == 0:
+            continue
         fig = go.Figure()
         for series_index, (series_key, df_i) in enumerate(dfs_group.items()):
             if barchart_group_vars_by and barchart_group_vars_by != split_by_variable:
                 df_i_sorted = df_i.sort_values(by=[barchart_group_vars_by], kind='stable')
                 number_per_group = df_i_sorted[barchart_group_vars_by].value_counts(sort=False)
                 if number_of_dfs > 1 and series_index != 0:
-                    consistent_groups = all(dfi[barchart_group_vars_by].value_counts(sort=False).equals(number_per_group) for dfi in dfs_group.values())
+                    consistent_groups = all(df_j[barchart_group_vars_by].value_counts(sort=False).equals(number_per_group) for df_j in dfs_group.values())
                     if not consistent_groups:
                         barchart_group_vars_by, number_per_group = None, None
             else:
@@ -986,7 +1002,7 @@ def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, ba
                         colorscale=colorscale,
                         colorbar=initial_colorbar_dict.copy(),
                         cmin=global_yaxis_min,
-                        cmax=global_yaxis_max
+                        cmax=global_yaxis_max,
                     )
                 else:
                     marker_dict = dict(color=updated_colors[j % len(updated_colors)])
@@ -1003,7 +1019,7 @@ def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, ba
                     offsetgroup_val = 0 if number_of_dfs == 1 else var
                 elif barmode == 'overlay': # and number_of_dfs > 1:
                     offsetgroup_val = j if number_of_dfs > 1 else None
-                #elif barmode == 'overlay' and number_of_dfs == 1: #and not any(df[barchart_x].duplicated().any() for df in dfs.values()):
+                #elif barmode == 'overlay' and number_of_dfs == 1: #and not any(df[barchart_x].duplicated().any() for df in dfs.items()):
                 #    offsetgroup_val = None
                 else:
                     offsetgroup_val = f'{series_index}-{j}'
@@ -1019,8 +1035,8 @@ def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, ba
                     legendrank=2 * (series_index + 1) if number_of_dfs > 1 else None,
                     customdata=df_i_sorted[[barchart_group_vars_by]].to_numpy() if barchart_group_vars_by else None,
                     hovertemplate=hover_template,
-                    showlegend=True,
-                    #showlegend=False if number_of_dfs == 1 else True
+                    #showlegend=True,
+                    showlegend=False if number_of_dfs == 1 and len(barchart_vars) == 1 else True
                 ))
             if number_of_dfs > 1:  # adding legends for multiple series (titles)
                 fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(size=0, color='rgba(0,0,0,0)'), name=series_key, legendgroup='S' + str(series_index + 1), \
@@ -1048,23 +1064,24 @@ def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, ba
 
         if barchart_pattern: # and series_index + 1 == number_of_dfs: # adding a legend for the patterns
             for item, pattern in global_marker_pattern_map.items():
-                fig.add_trace(go.Bar(x=[None], y=[None], marker=dict(color='lightgray', pattern=dict(shape=pattern, fillmode='overlay')), name=item, legendgroup='pattern', showlegend=True))
+                if all(item in df_j[barchart_pattern].values for df_j in dfs_group.values()):
+                    fig.add_trace(go.Bar(x=[None], y=[None], marker=dict(color='lightgray', pattern=dict(shape=pattern, fillmode='overlay')), name=item, legendgroup='pattern', showlegend=True))
 
         if hasattr(fig.data[0].marker, 'colorbar') and fig.data[0].marker.colorbar is not None:
             if len(fig.data[0].marker.colorbar.to_plotly_json()) > 0:
                 fig.add_annotation(text=colorbar_title, font=colorbar_titlefont, textangle=0, showarrow=False, xref='paper', yref='paper', x=fig.data[0].marker.colorbar.x + 0.0075, y=fig.data[0].marker.colorbar.y + fig.data[0].marker.colorbar.len, xanchor='left', yanchor='bottom')
 
-        graph_title_updated = set_graph_title((series_key + dfs_delimiter + key), graph_title, split_by_variable, multi_dataframes_id_col, 1, graph_index, dfs_delimiter) # forcing number_of_dfs to 1 for graph title due to the way Barchart is set up
-        if graph_title_updated:
-            fig.add_annotation(text=graph_title_updated, font=graph_titlefont, xref='paper', yref='paper', x=-0.065, y=1.1, xanchor='left', yanchor='top', showarrow=False)
-        top_margin = 80 if graph_title_updated not in [None, ''] else 60
+        categoryarray_labels = df_i_sorted[barchart_x].tolist()
+        xaxis_dict = get_axis_dict({'All': df_i_sorted.copy()}, -1, barchart_x, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, category_suffix)
+        graph_title_updated = set_graph_title((series_key + dfs_delimiter + key), graph_title, split_by_variable, multi_dataframes_id_col, 1, mdi_single_df, graph_index, dfs_delimiter) # forcing number_of_dfs to 1 for graph title due to the way Barchart is set up
         fig.update_layout(
+            title=dict(text=graph_title_updated, font=graph_titlefont, x=0, xanchor='left', y=0.97, yanchor='top', automargin=True) if graph_title_updated not in [None, ''] else None,
             barmode=barmode,
             legend=dict(orientation='h', yanchor='top', y=-0.15 if barchart_group_vars_by else -0.1, xanchor='right', x=1, font=legend_font),
-            margin=dict(t=top_margin, b=10),
+            margin=dict(t=80 if graph_title_updated not in [None, ''] else 60),
             xaxis=dict(showline=True, linecolor='black', mirror=True, title=dict(text=barchart_x, font=axis_titlefont, standoff=55 if barchart_group_vars_by else 15), type='category', categoryorder='array', \
-                    categoryarray=df_i_sorted[barchart_x], **axis_tickstyle, showgrid=False, gridcolor='white', dtick=1),
-            yaxis=dict(showline=True, linecolor='black', mirror=True, title=dict(text=yaxis_title, font=axis_titlefont), **global_yaxis_dict, showgrid=False, gridcolor='white'),
+                    categoryarray=df_i_sorted[barchart_x], **axis_tickstyle, showgrid=False, gridcolor='white', dtick=1, automargin=True),
+            yaxis=dict(showline=True, linecolor='black', mirror=True, title=dict(text=yaxis_title, font=axis_titlefont), **global_yaxis_dict, showgrid=False, gridcolor='white', automargin=True),
             plot_bgcolor='white',
             hoverlabel=hoverlabel_font,
         )
@@ -1074,46 +1091,50 @@ def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, ba
     return plots
 
 def generate_dumbbell_graph(dfs, x_variable, y_variable, color_variable, symbol_variable, x_grouped_over_vars, colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_col, \
-                            number_of_dfs, graph_title, category_suffix, plate_variables_columns):
-    yaxis_tickstep = 10
-    dfs_combined = pd.concat(dfs.values(), ignore_index=True)
+                            number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns):
 
-    # Fill the numeric columns with 0 for na; currently only y_variable can be numeric;
-    for key, subdf in dfs.items():
-        if is_numeric_dtype(dfs_combined[y_variable]):
-            dfs[key][y_variable] = subdf[y_variable].fillna(0).copy()
+    # Fill the numeric columns with 0 for na or remove rows if in plate_variables_columns; currently only y_variable can be numeric;
+    for key, df_i in dfs.items():
+        if is_numeric_dtype(dfs[key][y_variable]):
+            if y_variable.lower() in plate_variables_columns:
+                dfs[key] = dfs[key][dfs[key][y_variable].notna() & (dfs[key][y_variable].astype(str).str.strip() != '')].reset_index(drop=True)
+            else:
+                dfs[key][y_variable] = dfs[key][y_variable].fillna(0)
 
     global_marker_color_map, global_marker_symbol_map = None, None
     if color_variable:
-        global_marker_color_map = {
-            color: get_discrete_colorscale(colorscale, len(dfs_combined[color_variable].dropna().unique()))[i % len(get_discrete_colorscale(colorscale, len(dfs_combined[color_variable].dropna().unique())))]
-            for i, color in enumerate(dfs_combined[color_variable].dropna().unique())
-            }
+        global_marker_color_map = set_global_map(dfs, color_variable, colorscale)
     if symbol_variable:
-        global_marker_symbol_map = {item: marker_symbols[i % len(marker_symbols)] for i, item in enumerate(dfs_combined[symbol_variable].unique())}
+        global_marker_symbol_map = set_global_map(dfs, symbol_variable, None, plotly_all_marker_symbols)
 
-    global_yaxis_dict = set_axis_arguments(dfs_combined, y_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, axis_padding=0.5)[0]
+    global_yaxis_dict = get_axis_dict(dfs, -1, y_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, category_suffix, is_y_variable=True, axis_padding=0.5)
     vars_to_group_over = list(dict.fromkeys([v for v in [color_variable, symbol_variable] + (x_grouped_over_vars or []) if v is not None]))
 
     plots = []
     for graph_index, (key, df_i) in enumerate(dfs.items()):
+        if y_variable.lower() in plate_variables_columns:
+            local_yaxis_dict = get_axis_dict(dfs, graph_index, y_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, category_suffix, is_y_variable=True, axis_padding=0.2)
+        else:
+            local_yaxis_dict = global_yaxis_dict
         fig = go.Figure()
         # Group by specified variables first - each one gets a dumbbell
-        for group_keys, subdf in df_i.groupby(vars_to_group_over, observed=False):
+        for group_keys, sub_df in df_i.groupby(vars_to_group_over, observed=False): # group_keys will contain the values of vars_to_group_over; ex. ('THF', 'Pd')
+            if sub_df.empty:
+                continue
             if not isinstance(group_keys, tuple):
                 group_keys = (group_keys,)
             group_labels = '<br>'.join([f"{var}: {val}" for var, val in zip(vars_to_group_over, group_keys)])
 
-            line_color = line_color = global_marker_color_map[subdf[color_variable].iloc[0]] if (color_variable and global_marker_color_map) else 'black'
+            line_color = line_color = global_marker_color_map[sub_df[color_variable].iloc[0]] if (color_variable and global_marker_color_map) else 'black'
             fig.add_trace(go.Scatter( # this adds the lines
-                x=subdf[x_variable],
-                y=subdf[y_variable],
+                x=sub_df[x_variable],
+                y=sub_df[y_variable],
                 mode='lines',
                 line = dict(color=line_color, width=1),
                 showlegend=False,
             ))
 
-            for _, row in subdf.iterrows():
+            for _, row in sub_df.iterrows():
                 marker_color = global_marker_color_map[row[color_variable]] if (color_variable and global_marker_color_map) else default_single_marker['color']
                 marker_symbol = global_marker_symbol_map[row[symbol_variable]] if (symbol_variable and global_marker_symbol_map) else default_single_marker['symbol']
                 hover_template = f'{y_variable}: {row[y_variable]:.1f}<br>{x_variable}: {row[x_variable]}<br>{group_labels}<extra></extra>'
@@ -1129,40 +1150,36 @@ def generate_dumbbell_graph(dfs, x_variable, y_variable, color_variable, symbol_
         # Add legend entries (color/symbol variables)
         if color_variable and global_marker_color_map:
             for color_var, color in global_marker_color_map.items():
-                fig.add_trace(go.Scatter(
-                    x=[None], y=[None],
-                    mode='markers',
-                    marker=dict(size=12, color=color, symbol='circle'),
-                    name=f'{color_variable}: {color_var}'
-                ))
+                if color_var in df_i[color_variable].values:
+                    fig.add_trace(go.Scatter(
+                        x=[None], y=[None],
+                        mode='markers',
+                        marker=dict(size=12, color=color, symbol='circle'),
+                        name = f'{color_var}'
+                    ))
         if symbol_variable and global_marker_symbol_map:
             for symbol_var, symbol in global_marker_symbol_map.items():
-                fig.add_trace(go.Scatter(
-                    x=[None], y=[None],
-                    mode='markers',
-                    marker=dict(size=12, color='lightgray', symbol=symbol, line=dict(color='black', width=1)),
-                    name=f'{symbol_variable}: {symbol_var}'
-                 ))
+                if symbol_var in df_i[symbol_variable].values:
+                    fig.add_trace(go.Scatter(
+                        x=[None], y=[None],
+                        mode='markers',
+                        marker=dict(size=12, color='lightgray', symbol=symbol, line=dict(color='black', width=1)),
+                        name = f'{symbol_var}'
+                    ))
 
-        graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, graph_index, dfs_delimiter)
-        if graph_title_updated:
-            fig.add_annotation(text=graph_title_updated, font=graph_titlefont, xref='paper', yref='paper', x=-0.075, y=1.1, xanchor='left', yanchor='top', showarrow=False)
-        top_margin = 110 if graph_title_updated not in [None, ''] else 60
-        xaxis_title = x_variable + '<br>' + '[' + ', '.join(vars_to_group_over) + ']'
+        graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter)
         fig.update_layout(
-            margin=dict(t=top_margin),
-            xaxis=dict(title=dict(text=xaxis_title, font=axis_titlefont, standoff=30), showline=True, linecolor='black', mirror=True, type='category', **axis_tickstyle, showgrid=False, gridcolor='white'),
-            yaxis=dict(title=dict(text=y_variable, font=axis_titlefont, standoff=30), showline=True, linecolor='black', mirror=True, **global_yaxis_dict, showgrid=False, gridcolor='white'),
+            title=dict(text=graph_title_updated, font=graph_titlefont, x=0, xanchor='left', y=0.97, yanchor='top', automargin=True) if graph_title_updated not in [None, ''] else None,
+            margin=dict(t=80 if graph_title_updated not in [None, ''] else 60),
+            xaxis=dict(title=dict(text=x_variable + '<br>' + '[' + ', '.join(vars_to_group_over) + ']', font=axis_titlefont), showline=True, linecolor='black', mirror=True, type='category', **axis_tickstyle, showgrid=False, gridcolor='white', automargin=True),
+            yaxis=dict(title=dict(text=y_variable, font=axis_titlefont), showline=True, linecolor='black', mirror=True, **local_yaxis_dict, showgrid=False, gridcolor='white', automargin=True),
             template='plotly_white',
             hoverlabel=hoverlabel_font,
             legend=dict(orientation='v', yanchor='top', y=1.0, xanchor='left', x=1.02, font=legend_font, itemsizing='trace'),
         )
+
+        if y_variable.lower() in plate_variables_columns:
+            fig.update_yaxes(range=None, type='category', categoryorder='array', categoryarray=df_i[y_variable])
         plots.append(fig)
 
     return plots
-
-
-
-
-
-

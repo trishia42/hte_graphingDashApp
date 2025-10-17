@@ -9,6 +9,7 @@ from datetime import datetime
 import operator as op
 import traceback
 import os
+import re
 import zipfile
 import plotly.graph_objects as go
 import plotly.io as pio
@@ -62,13 +63,12 @@ colorscale_options = ['Plotly3', 'Viridis', 'Inferno', 'Magma', 'Plasma', 'Turbo
                        'Rainbow', 'Thermal', 'Haline', 'Solar', 'Ice', 'Deep', 'Dense', 'Matter', 'Speed', 'AgSunset',
                        'SunsetDark', 'Aggrnyl', 'Puor', 'RdBu', 'Spectral', 'Balance', 'Delta', 'Curl', 'TealRose', 'Portland',
                        'PRGn', ]
-#columns_to_skip_in_UI, cake_agg_options = ['row', 'column', 'position', 'index', 'well', 'well index', 'id'], ['Well', 'ID']
+
 category_suffix, plate_variables_columns = '_encoded', ['row', 'column', 'position', 'index', 'well', 'well index', 'id']
 bootstrap_cols = 12
 sidebar_width = (1/6)*bootstrap_cols # in bootstrap definition
 graph_options = {'Parallel Coordinates': 0, 'Scatter': 1, 'Heatmap': 2, 'Pie Charts': 3, 'Bar Chart': 4, 'Dumbbell Treillis': 5}
 graph_type_label_style = {'fontSize': '0.92rem', 'fontWeight': 'bold', 'marginTop':'0.75rem', 'marginBottom':'0.25rem'}
-
 pd.set_option('display.max_rows', None)
 pd.set_option('display.max_columns', None)
 
@@ -84,7 +84,6 @@ app.layout = dbc.Container([
     dcc.Store(id='df-column-variable-store'),
     dcc.Store(id='df-numeric-columns-store'),
     dcc.Store(id='df-categorical-columns-store'),
-    dcc.Store(id='df-encoded-categorical-columns-store'),
     dcc.Store(id='datatable-modified-store'),
     dcc.Store(id='raw-figures-store'),
     dbc.Row([
@@ -309,6 +308,7 @@ app.layout = dbc.Container([
     Output('multiple-dataframes-id-column', 'value', allow_duplicate=True),
     Output('scatter-x-variable', 'value', allow_duplicate=True),
     Output({'type': 'listbox', 'subtype': 'scatter-x-subplots-variables'}, 'value', allow_duplicate=True),
+    Output('scatter-z-variable', 'value', allow_duplicate=True),
     Output('multi-series-names', 'value', allow_duplicate=True),
     Output('multi-series-names', 'disabled', allow_duplicate=True),
     Input('graph-selection', 'value'),
@@ -318,6 +318,7 @@ app.layout = dbc.Container([
     State('multiple-dataframes-id-column', 'options'),
     Input('scatter-x-variable', 'value'),
     Input({'type': 'listbox', 'subtype': 'scatter-x-subplots-variables'}, 'value'),
+    Input('scatter-z-variable', 'value'),
     Input('multiple-dataframes-id-column', 'value'),
     Input('multiple-dataframes-handling', 'value'),
     prevent_initial_call = True
@@ -325,10 +326,10 @@ app.layout = dbc.Container([
 #</editor-fold>
 
 def UIInteractivity(graph_selection, colorscale_name, colorscale_reverse, stored_dataframe, multi_dataframes_id_column_options, scatter_x_variable, scatter_x_subplots_variables, \
-                    multiple_dataframes_id_column_value, multiple_dataframes_handling):
+                    scatter_z_variable, multiple_dataframes_id_column_value, multiple_dataframes_handling):
 
     parallel_output, scatter_output, heatmap_output, piechart_output, barchart_output, dumbbell_output, colorscale_preview, multi_dataframes_id_column_state, multi_dataframes_id_column_value, \
-        scatter_x_variable_output, scatter_x_subplots_variables_output, multi_series_names_value_output, multi_series_names_disabled_output = [dash.no_update]*13
+        scatter_x_variable_output, scatter_x_subplots_variables_output, scatter_z_variable_output, multi_series_names_value_output, multi_series_names_disabled_output, = [dash.no_update]*14
 
     try:
         trigger = ctx.triggered_id
@@ -350,27 +351,27 @@ def UIInteractivity(graph_selection, colorscale_name, colorscale_reverse, stored
                     multi_dataframes_id_column_value = 'Row/Column' if any(opt['value'] == 'Row/Column' for opt in multi_dataframes_id_column_options) else None
             else:
                 multi_dataframes_id_column_state = False
-        elif trigger == 'scatter-x-variable':
-            if scatter_x_variable is not None:
+                multi_dataframes_id_column_value = None
+        elif trigger == 'scatter-x-variable' or trigger == 'scatter-z-variable':
+            if scatter_x_variable is not None or scatter_z_variable is not None:
                 scatter_x_subplots_variables_output = None
         elif isinstance(ctx.triggered_id, dict) and ctx.triggered_id.get('subtype') == 'scatter-x-subplots-variables':
             if scatter_x_subplots_variables is not None:
-                scatter_x_variable_output = None
+                scatter_x_variable_output, scatter_z_variable_output = None, None
         elif trigger == 'multiple-dataframes-id-column' or trigger == 'multiple-dataframes-handling':
             if multiple_dataframes_id_column_value is not None and multiple_dataframes_handling == 'All':
                 multi_series_names_value_output, multi_series_names_disabled_output = dash.no_update, False
             else:
                 multi_series_names_value_output, multi_series_names_disabled_output = None, True
 
-
         return parallel_output, scatter_output, heatmap_output, piechart_output, barchart_output, dumbbell_output, colorscale_preview, multi_dataframes_id_column_state, \
-            multi_dataframes_id_column_value, scatter_x_variable_output, scatter_x_subplots_variables_output, multi_series_names_value_output, multi_series_names_disabled_output
+            multi_dataframes_id_column_value, scatter_x_variable_output, scatter_x_subplots_variables_output, scatter_z_variable_output, multi_series_names_value_output, multi_series_names_disabled_output
 
     except Exception as e:
         exception_message = generate_exception_message(e)
-        return [dash.no_update] * (13 - 1) + [exception_message]
+        return [dash.no_update] * (14 - 1) + [exception_message]
 
-number_of_load_data_outputs = 66 + 43
+number_of_load_data_outputs = 66 + 42
 #<editor-fold desc="**app.callback => Handle uploads/test data and programmatic changes to data table">
 @app.callback(
     Output('dataframe-store', 'data', allow_duplicate=True),
@@ -380,7 +381,6 @@ number_of_load_data_outputs = 66 + 43
     Output('df-column-variable-store', 'data', allow_duplicate=True),
     Output('df-numeric-columns-store', 'data', allow_duplicate=True),
     Output('df-categorical-columns-store', 'data', allow_duplicate=True),
-    Output('df-encoded-categorical-columns-store', 'data', allow_duplicate=True),
 
     Output('parallel-variables-wrapper', 'key', allow_duplicate=True),
     Output({'type': 'listbox', 'subtype': 'parallel-variables'}, 'options', allow_duplicate=True),
@@ -528,7 +528,7 @@ def load_data(upload_contents, load_filename, n_clicks_test_data, n_clicks_add_r
             elif trigger == 'test-data':
                 if n_clicks_test_data is None or n_clicks_test_data == 0:
                     return [dash.no_update] * (number_of_load_data_outputs)
-                data_to_load, load_filename = 'testData24.xlsx', 'testData24.xlsx'
+                data_to_load, load_filename = 'testData.xlsx', 'testData.xlsx'
             try:
                 if load_filename.endswith('.xlsx') or load_filename.endswith('.xls'):
                     df = pd.read_excel(data_to_load, na_values=[''], keep_default_na=False)
@@ -621,9 +621,10 @@ def load_data(upload_contents, load_filename, n_clicks_test_data, n_clicks_add_r
                 .loc[:,lambda d: ~d.columns.str.startswith('Unnamed:') & d.columns.notna() & (d.columns != '')]  #.copy()
                 .reset_index(drop=True)
         )
+
         status = status + str(len(df)) + ' data rows and ' + str( len(df.columns)) + ' columns.'
         style_cell_conditional = [{'if': {'column_id': col}, 'maxWidth': '18.75rem', 'minWidth': '6.25rem', 'width': 'auto'} for col in df.columns]
-        original_cols, numeric_cols, categorical_cols, encoded_categorical_cols, df_row_variable, df_column_variable = update_dataframe_data(df, None, category_suffix)
+        original_cols, numeric_cols, categorical_cols, df_row_variable, df_column_variable = update_dataframe_data(df, None, category_suffix)
 
         row_consistent_columns, column_consistent_columns = get_consistent_columns(df, categorical_cols, df_row_variable, df_column_variable)
         stored_dataframe = {'data': df.to_json(date_format='iso', orient='split'),
@@ -648,7 +649,7 @@ def load_data(upload_contents, load_filename, n_clicks_test_data, n_clicks_add_r
 
         return (
             # data
-            stored_dataframe, f'Current file: {load_filename}' if new_df else dash.no_update, original_cols, df_row_variable, df_column_variable, numeric_cols, categorical_cols, encoded_categorical_cols,
+            stored_dataframe, f'Current file: {load_filename}' if new_df else dash.no_update, original_cols, df_row_variable, df_column_variable, numeric_cols, categorical_cols,
             # parallel
             str(uuid.uuid4()), all_columns_list, [] if new_df else dash.no_update,
             str(uuid.uuid4()), numerical_columns_list, next((opt['value'] for opt in numerical_columns_list if opt['value'].lower().startswith('yield')), None) if new_df else dash.no_update,
@@ -773,7 +774,6 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
                                 colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_handling, multi_dataframes_id_column, multi_dataframes_reverse, multi_dataframes_series_names, colorscale_reverse, \
                                 graph_title, current_graph_container_style):
 
-
     trigger, figs, graphs, grid, grid_columns, graph_container_style, status, dfs_delimiter = None, [], [], [], 1, {'display': 'none'}, '', '|=%' # we want to use something that will not be used
     dfs, number_of_figures, number_of_figure_rows, number_of_figure_columns, viewport_maximum_width, viewport_maximum_height = {}, 0, 0, 0, 80, 90
     try:
@@ -809,6 +809,8 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
         return [dash.no_update] * (number_of_graph_outputs - 1) + [exception_message]
 
     try:
+        # With no multi_dataframes_id_column, dfs = {'All': data}; with {'Series 1': data, 'Series 2': data}
+        mdi_single_df = False
         if multi_dataframes_id_column is not None:
             if multi_dataframes_id_column == 'Row/Column' or is_numeric_dtype(df[multi_dataframes_id_column]):
                 # Updated here so that for numerical multi_dataframes_id_col, it will create series not from unique values but from repeated groups, even if some values are missing, and can also handle categorical
@@ -834,9 +836,11 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
             if multi_dataframes_handling == 'First':
                 dfs = {next(iter(dfs)): dfs[next(iter(dfs))]}
                 number_of_dfs = 1
+                mdi_single_df = True
             elif multi_dataframes_handling == 'Last':
                 dfs = {next(reversed(dfs)): dfs[next(reversed(dfs))]}
                 number_of_dfs = 1
+                mdi_single_df = True
             if multi_dataframes_series_names:
                 names = multi_dataframes_series_names.split('|')
                 dfs = {name: subdf for name, subdf in zip(names, dfs.values())}
@@ -844,6 +848,7 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
             number_of_dfs = 1
             dfs = {'All': df.copy()}
 
+        # With split_by variable, then becomes {'All[del]F1': data, 'All[del]F2': data}, {'Series 1[del]F1': data, 'Series 1[del]F2': data, 'Series 1[del]F1': data, 'Series 2[del]F2': data}
         if split_by_variable:
             split_dfs = {}
             for key, subdf in dfs.items():
@@ -851,6 +856,18 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
                 for split_by, sub_subdf in grouped:
                     split_dfs[f'{key}{dfs_delimiter}{split_by}'] = sub_subdf
             dfs = split_dfs
+
+        # Remove any empty dataframes and remove unused categories
+        dfs = {k: v for k, v in dfs.items() if not v.empty}
+        ##dfs = {k: v.apply(lambda col: col.cat.remove_unused_categories() if col.dtype.name == 'category' else col) for k, v in dfs.items()}
+
+        # check if any of the columns in the dataframes can be reconverted to numerical and if so, do so
+        for key, df  in dfs.items():
+            for col in df.select_dtypes(['category', 'object']).columns:
+                if pd.to_numeric(df[col], errors='coerce').notna().all():
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                    if col + category_suffix in df.columns:
+                        del df[col + category_suffix] # clean up some
 
     except Exception as e:
         exception_message = 'Exception in processing data into dfs: ' + generate_exception_message(e)
@@ -864,25 +881,34 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
                 status = 'Need to select parallel variables and color variable.' if trigger == 'generate-button' else ''
             else:
                 figs = generate_parallel_coordinates_graph(dfs, parallel_variables, parallel_color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_column, \
-                                                                             number_of_dfs, graph_title, category_suffix, plate_variables_columns)
+                                                                             number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated parallel coordinates graph.'
         elif (graph_selection == 'Scatter'):
             if not scatter_y_variable and (not scatter_x_variable or not scatter_x_subplots_variables):
                 status = 'Need to select x and y variables.' if trigger == 'generate_button' else ''
             else:
                 figs = generate_scatter_bubble_graph(dfs, scatter_x_variable, scatter_x_subplots_variables, scatter_y_variable, scatter_z_variable, scatter_surface, scatter_size_variable, scatter_symbol_variable, \
-                                                     scatter_color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_column, number_of_dfs, graph_title, category_suffix, plate_variables_columns)
+                                                     scatter_color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_column, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated scatter/bubble graph - 3d ignored when doing subplots.' if scatter_x_subplots_variables and scatter_z_variable else 'Generated scatter/bubble graph.'
         elif (graph_selection == 'Heatmap' or graph_selection == 'Pie Charts'):
             if (df_row_variable == None) or (df_column_variable == None):
                 status = graph_selection + ' graphs require a valid Row and Column columns in the dataframe/provided data file.' if trigger == 'generate-button' else ''
-            elif (graph_selection == 'Heatmap'):
+            elif isinstance(next(iter(dfs.values()))[df_column_variable].dtype, CategoricalDtype): # we can check the only one since types were assigned on the df before splitting into dfs
+                status = 'Dataframe type for Column must be numerical within all dataframes for ' + graph_selection + ' graphs.' # because we can't determine column number without knowing total number of columns
+            elif isinstance(next(iter(dfs.values()))[df_row_variable].dtype, CategoricalDtype):
+                if all(df[df_row_variable].dropna().astype(str).str.fullmatch(r"[A-Za-z]$").all() for df in dfs.values()) == False:
+                    status = 'Dataframe column type for Row must either be numerical or single character categorical within all dataframes for ' + graph_selection + ' graphs.'
+                else: # create a column to convert the single characters to numeric row equivalents - we do this for consistency within the other functions
+                    for name, df in dfs.items():
+                        df['Row_numeric'] = (df[df_row_variable].astype(str).str.upper().map(lambda x: ord(x) - ord('A') + 1 if re.fullmatch(r"[A-Z]", x) else pd.NA))
+                        df_row_variable = 'Row_numeric'
+            if (graph_selection == 'Heatmap'):
                 if not heatmap_color_variable:
                     status = 'Need to select heatmap color variable.' if trigger == 'generate-button' else ''
                 else:
                     figs, number_of_figure_rows, number_of_figure_columns = generate_heatmap_graph(dfs, df_row_variable, df_column_variable, heatmap_color_variable, heatmap_add_row_variable, \
                                                                                            heatmap_add_column_variable, heatmap_smooth, colorscale, split_by_variable, plate_rows_as_alpha, \
-                                                                                           multi_dataframes_id_column, number_of_dfs, graph_title, plate_variables_columns)
+                                                                                           multi_dataframes_id_column, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                     status = 'Generated heatmap graph.'
             else:  # so Pie Charts
                 if not piechart_variables:
@@ -912,60 +938,39 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
                         status = 'Generated pie charts.'
                         figs, number_of_figure_rows, number_of_figure_columns = generate_piecharts_graph(dfs, df_row_variable, df_column_variable,  piechart_variables, piechart_add_row_variable, piechart_add_column_variable, piechart_normalization_index, \
                                                         normalization_value, piechart_donut, piechart_cakeplots, colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_column, number_of_dfs, \
-                                                        multi_dataframes_reverse, graph_title, plate_variables_columns)
+                                                        multi_dataframes_reverse, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
         elif (graph_selection == 'Bar Chart'):
             if not barchart_x_variable or not barchart_variables:
                 status = 'Need to select x and y variables.' if trigger == 'generate-button' else ''
             else:
                 figs = generate_barchart_graph(dfs, barchart_x_variable, barchart_variables, barchart_pattern_variable, barchart_group_variables_by, barchart_barmode_option, \
-                                                colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_column, multi_dataframes_reverse, number_of_dfs, graph_title, category_suffix, plate_variables_columns)
+                                                colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_column, multi_dataframes_reverse, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated bar chart graph.'
         elif (graph_selection == 'Dumbbell Treillis'):
             if not dumbbell_x_variable or not dumbbell_y_variable or not (dumbbell_grouped_variables or dumbbell_color_variable or dumbbell_symbol_variable):
                 status = 'Need to select x, y, and grouped over variables for dumbbell treillis plot.' if trigger == 'generate-button' else ''
             else:
                 figs = generate_dumbbell_graph(dfs, dumbbell_x_variable, dumbbell_y_variable, dumbbell_color_variable, dumbbell_symbol_variable, dumbbell_grouped_variables, colorscale, \
-                                                                 split_by_variable, plate_rows_as_alpha, multi_dataframes_id_column, number_of_dfs, graph_title, category_suffix, plate_variables_columns)
+                                                                 split_by_variable, plate_rows_as_alpha, multi_dataframes_id_column, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated dumbbell treillis graph.'
     except Exception as e:
         exception_message = 'Exception in generating ' + graph_selection + ' graph: ' + generate_exception_message(e)
         return [dash.no_update] * (number_of_graph_outputs - 1) + [exception_message]
 
     try:
-        # Note that in Python, the if <value> does not check for only None, it also checks for 'truthiness', and 0 is considered falsy.
-        number_of_figures = len(figs)
-        grid_columns = 1 if number_of_figures == 1 or (graph_selection == 'Scatter' and (scatter_x_subplots_variables and len(scatter_x_subplots_variables) > 1)) else 2
-
-        def figure_box_style(n_rows, n_cols, grid_columns): #, fig_margins):
-            max_height, max_width = '90vh', f'{80/grid_columns}vw'
-            ar = (n_cols / n_rows) if (n_rows and n_cols) else 1.0 # guard against divide-by-zero
-            if grid_columns > 1:
-                if n_cols < n_rows:
-                    ar = ar + 0.1*ar
-                else:
-                    ar = ar - 0.1*ar
-            return {
-                '--ar': str(ar), # store aspect ratio as a CSS var for reuse
-                # responsive bounding box honoring BOTH limits while keeping the aspect
-                'width': f'min({max_width}, calc({max_height} * var(--ar)))',
-                'height': f'min({max_height}, calc({max_width} / var(--ar)))',
-                'position': 'relative', # ensure child can absolutely fill this box if desired
-                'margin': '0 auto',  # center in its column
-                # 'border': '1px solid #ddd', 'borderRadius': '6px' # optional: round corners / border if you like
-            }
-
-        if graph_selection == 'Heatmap' or graph_selection == 'Pie Charts':
-            html_div_style = figure_box_style(number_of_figure_rows, number_of_figure_columns, grid_columns)
-        else:
+        if figs:
+            # Note that in Python, the if <value> does not check for only None, it also checks for 'truthiness', and 0 is considered falsy.
+            number_of_figures = len(figs)
+            grid_columns = 1 if number_of_figures == 1 or (graph_selection == 'Scatter' and (scatter_x_subplots_variables and len(scatter_x_subplots_variables) > 1)) else 2
+            graph_style = {'width': '100%', 'height': '100%'}
             html_div_style = {'height': '90vh', 'width': f'{80/grid_columns}vw', 'margin': '0 auto'}
 
-        if figs:
             graphs = [
                 html.Div(
                     dcc.Graph(
-                        figure=fig,
+                       figure=fig,
                         config={'responsive': True},
-                        style={'width': '100%', 'height': '100%'},
+                        style=graph_style,
                         className='graph-container',
                         clear_on_unhover=True,
                     ),
