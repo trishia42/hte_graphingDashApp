@@ -68,6 +68,32 @@ def get_consistent_columns(df, subset_to_check, row_variable, column_variable):
 
     return consistent_cols_across_rows, consistent_cols_across_cols
 
+def split_dataframe(df_to_split, split_column):
+
+    if not df_to_split.empty and split_column:
+        if split_column == 'Row/Column' or is_numeric_dtype(df_to_split[split_column]):
+            # Updated here so that for numerical multi_dataframes_id_col, it will create series not from unique values but from repeated groups, even if some values are missing, and can also handle categorical
+            groups, current_group, current_idx, seen = [], [], [], set()
+            for idx, row in df_to_split.iterrows():
+                key = (row['Row'], row['Column']) if split_column == 'Row/Column' else (row[split_column])
+                if ((isinstance(key, tuple) and any(pd.isna(v) for v in key)) or (not isinstance(key, tuple) and pd.isna(key))): # don't include rows with missing values
+                    continue
+                if key in seen:
+                    groups.append(df_to_split.loc[current_idx])
+                    current_idx, seen = [idx], {key}
+                else:
+                    current_idx.append(idx)
+                    seen.add(key)
+            if current_idx:
+                groups.append(df_to_split.loc[current_idx])
+            dfs = {f'Series {i + 1}': g for i, g in enumerate(groups)}
+        else:
+            dfs = {str(item): g for item, g in df_to_split.groupby(multi_dataframes_id_column, observed=False)}
+    else:
+        dfs = None
+
+    return dfs
+
 def get_discrete_colorscale(color_scale_name, num_colors):
     positions = np.linspace(0, 1, num_colors)
     return pc.sample_colorscale(color_scale_name, positions)

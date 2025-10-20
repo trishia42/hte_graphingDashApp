@@ -21,7 +21,7 @@ plotly_all_marker_symbols = marker_symbols + [symbol for symbol in ValidatorCach
 plotly_all_marker_patterns = ['', 'x', '/', '.', '+', '|', '-', '\\']
 dfs_delimiter, default_single_marker, zero_value_marker = '|=%', {'symbol': 'circle' , 'color': 'indigo', 'size':10, 'surfaceSize':2},  {'symbol': '-open', 'size':5}
 
-def generate_parallel_coordinates_graph(dfs, parallel_variables, color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_title, \
+def generate_parallel_coordinates_graph(dfs, parallel_variables, color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_col, number_of_dfs, mdi_single_df, graph_title, \
                                         category_suffix, plate_variables_columns):
 
     # Note - pd.concat() will upcast categorical columns to the object type unless all input dataframes have identical category definitions, so we want to avoid doing this
@@ -34,7 +34,7 @@ def generate_parallel_coordinates_graph(dfs, parallel_variables, color_variable,
         dfs[key][dfs[key].select_dtypes(include='number').columns] = dfs[key][dfs[key].select_dtypes(include='number').columns].fillna(0) # fill all NaN numerical with 0's
         plot_dimensions = []
         for col in parallel_variables:
-            if col == split_by_variable: #or col == multi_dataframes_id_col: # we don't include these
+            if col == split_by_variable: #or col == multiple_dataframes_id_col: # we don't include these
                 continue
             axis_dict = get_axis_dict(dfs, graph_index, col, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, category_suffix) # global to all here
             if col == color_variable:
@@ -63,7 +63,7 @@ def generate_parallel_coordinates_graph(dfs, parallel_variables, color_variable,
             if len(fig.data[0].line.colorbar.to_plotly_json()) > 0:
                 fig.add_annotation(text=color_variable, font=colorbar_titlefont, textangle=0, showarrow=False, xref='paper', yref='paper', x=fig.data[0].line.colorbar.x + 0.0075, y=fig.data[0].line.colorbar.y + fig.data[0].line.colorbar.len, xanchor='left', yanchor='bottom')
 
-        graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter)
+        graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multiple_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter)
         fig.update_layout(
             title=dict(text=graph_title_updated, font=graph_titlefont, x=0, xanchor='left', y=0.97, yanchor='top', automargin=True) if graph_title_updated not in [None, ''] else None,
             margin = dict(t=110 if graph_title_updated not in [None, ''] else 60),
@@ -74,7 +74,7 @@ def generate_parallel_coordinates_graph(dfs, parallel_variables, color_variable,
     return plots
 
 def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_variable, z_variable, scatter_surface, size_variable, symbol_variable, color_variable, colorscale, split_by_variable, \
-                                  plate_rows_as_alpha, multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns):
+                                  plate_rows_as_alpha, multiple_dataframes_id_col, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns):
 
     def add_hover_and_custom_data(df_or_series, custom_data, hover_lines, insert_or_append, col=None, is_numeric=False, insert_index=0, fmt=':.2f', hover_label=None, added_labels=None):
         if isinstance(df_or_series, pd.Series):
@@ -336,7 +336,7 @@ def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_varia
                                 y=(fig.data[colorbar_trace_index].marker.colorbar.y + fig.data[colorbar_trace_index].marker.colorbar.len),  \
                                 xanchor='left', yanchor='bottom')
 
-        graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter)
+        graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multiple_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter)
         fig.update_layout(
             title=dict(text=graph_title_updated, font=graph_titlefont, x=0, xanchor='left', y=0.97, yanchor='top', automargin=True) if graph_title_updated not in [None, ''] else None,
             margin=dict(t=80 if graph_title_updated not in [None, ''] else 60),
@@ -430,7 +430,7 @@ def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_varia
     return plots
 
 def generate_heatmap_graph(dfs, row_variable, column_variable, color_variable, additional_row_variable, additional_column_variable, z_smooth_option, colorscale, split_by_variable, plate_rows_as_alpha, \
-                           multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns):
+                           multiple_dataframes_id_col, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns):
 
     # Remove any lines that are missing row/column, clean up additional_row/column_variables;
     for key, df_i in dfs.items():
@@ -445,7 +445,7 @@ def generate_heatmap_graph(dfs, row_variable, column_variable, color_variable, a
     for graph_index, (key, df_i) in enumerate(dfs.items()):
         # disabled above for now; will split dataframes if they exist, but left the code as a placeholder for now
         #add_new_figure = False
-        ##if multi_dataframes_id_col:
+        ##if multiple_dataframes_id_col:
         ##    add_new_figure = True
         #if not split_by_variable:
         #    add_new_figure = (i == 0)
@@ -487,7 +487,7 @@ def generate_heatmap_graph(dfs, row_variable, column_variable, color_variable, a
                 colorbar_dict.update(tickvals=global_zaxis_dict['tickvals'], ticktext=global_zaxis_dict['ticktext'])
             z_smooth_option = False if z_smooth_option == 'False' else z_smooth_option
 
-        # if graphs end up being superimposed here (more than one df detected with Row/Column, but no multi_dataframes_id_col specified), the data from last set is on top
+        # if graphs end up being superimposed here (more than one df detected with Row/Column, but no multiple_dataframes_id_col specified), the data from last set is on top
         custom_hover_data = np.array([
             [[(f"{chr(64 + int(y))}{f'{x:.0f}' if isinstance(x, (int, float, numbers.Integral)) and not pd.isna(x) else x}" if plate_rows_as_alpha else f"{row_variable}: {int(y)}<br>{column_variable}: {int(x)}"),
                  ('N/A' if pd.isna(z_hover_labels.at[y, x] if isinstance(df_i[color_variable].dtype, CategoricalDtype) else heatmap_data.at[y, x]) else f'{z_hover_labels.at[y, x]:.1f}' \
@@ -566,7 +566,7 @@ def generate_heatmap_graph(dfs, row_variable, column_variable, color_variable, a
             if n_cols > max_figure_columns:
                 max_figure_columns = n_cols
 
-            graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter)
+            graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multiple_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter)
             fig.update_layout(
                 margin=dict(t=80 if graph_title_updated not in [None, ''] else 60, b=90 if not additional_column_variable else 90 + 20 * (len(additional_column_variable))),
                 title=dict(text=graph_title_updated, font=graph_titlefont, x=0, xanchor='left', y=0.97, yanchor='top', automargin=True) if graph_title_updated not in [None, ''] else None,
@@ -601,7 +601,7 @@ def generate_heatmap_graph(dfs, row_variable, column_variable, color_variable, a
     return plots, max_figure_rows, max_figure_columns
 
 def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_variables, additional_row_variable, additional_column_variable, normalization_method, normalization_value, piechart_donut, \
-                             piechart_cakeplots, colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_col, number_of_dfs, multi_dataframes_reverse, mdi_single_df, graph_title, category_suffix, plate_variables_columns):
+                             piechart_cakeplots, colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_col, number_of_dfs, multiple_dataframes_reverse, mdi_single_df, graph_title, category_suffix, plate_variables_columns):
 
     def compute_pie_values_and_labels(values, labels, normalization_method, normalization_value, well_id, pie_index, number_of_pies, key):
 
@@ -674,7 +674,7 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
     piecharts_variables_colors['Unknown'] = 'white'
     base_unit, spacing_px, piechart_hole_size, piechart_shadow, piechart_shadow_x_offset, piechart_shadow_y_offset, piechart_shadow_add_size = 100, 10, 0.3, True, 0.0025, 0.006, 0.005,
 
-    if multi_dataframes_id_col and piechart_cakeplots and number_of_dfs > 1:
+    if multiple_dataframes_id_col and piechart_cakeplots and number_of_dfs > 1:
         number_of_pies = number_of_dfs
     else:
         number_of_pies = 1
@@ -682,7 +682,7 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
     # <editor-fold desc="*Placeholder in case*">
     # ****leave for now, but disabled currently - will plot multiple dataframes on separate arrays, unless cake_plots
     #dfs_grouped = {}
-    #if split_by_variable and multi_dataframes_id_col:
+    #if split_by_variable and multiple_dataframes_id_col:
     #    #  Case 4: split by both
     #    if piechart_cakeplots:
     #        for key, df_i in dfs.items():
@@ -705,7 +705,7 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
     #            series_name, split_var = key.split(' - ', 1)
     #            dfs_grouped.setdefault(split_var, {})
     #            dfs_grouped[split_var][series_name] = df_i
-    #elif multi_dataframes_id_col:
+    #elif multiple_dataframes_id_col:
     #    # Case 3: split only by series
     #    if piechart_cakeplots:
     #        dfs_grouped['All'] = dfs
@@ -770,7 +770,7 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
                 for df_i in dfs.values():
                     grouped = df_i.groupby(row_variable, observed=False)[var].agg(lambda x: x.unique()[0]).to_dict()
                     result_dict.update(grouped)
-                item = result_dict.get(col, 'Unknown')
+                item = result_dict.get(row, 'Unknown')
                 axis_values.append(str(item))
                 if not any(var in hv for hv in hover_values):
                     hover_values.append(f'{var}: {item}')
@@ -804,7 +804,6 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
                 for series_index, (key, df_i) in enumerate(series_dict.items()):
                     scale_factor = 1/((series_index/2)+1) if number_of_pies > 1 else 1
                     pie_domain = dict(x=[x_center - (pie_width*scale_factor) / 2, x_center + (pie_width*scale_factor) / 2], y=[y_center - (pie_height*scale_factor) / 2, y_center + (pie_height*scale_factor) / 2])
-                    print("pie_domain = ", pie_domain)
 
                     if piechart_shadow:
                         pie_domain_shadow = dict(
@@ -863,7 +862,7 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
             group_name = ', '.join(series_dict.keys()) if piechart_cakeplots else group_name
         else:
             group_name = ', '.join(series_dict.keys()) + dfs_delimiter + group_name if piechart_cakeplots else group_name
-        graph_title_updated = set_graph_title(group_name, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter)
+        graph_title_updated = set_graph_title(group_name, graph_title, split_by_variable, multiple_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter)
         fig.update_layout(
             title=dict(text=graph_title_updated, font=graph_titlefont, x=0, xanchor='left', y=0.97, yanchor='top', automargin=True) if graph_title_updated not in [None, ''] else None,
             showlegend=True,
@@ -902,7 +901,7 @@ def generate_piecharts_graph(dfs, row_variable, column_variable,  piecharts_vari
 
 
 def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, barchart_group_vars_by, barchart_barmode_option, colorscale, split_by_variable, plate_rows_as_alpha, \
-                            multi_dataframes_id_col, multi_dataframes_reverse, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns):
+                            multiple_dataframes_id_col, multiple_dataframes_reverse, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns):
 
     multi_group_by, barmode, barchart_shadow = barchart_x, barchart_barmode_option.lower(), True
     selected_colors_from_colorscale = get_discrete_colorscale(colorscale, len(barchart_vars))
@@ -925,11 +924,11 @@ def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, ba
         if barchart_pattern:
             dfs[key]['bar_pattern'] =dfs[key][barchart_pattern].map(global_marker_pattern_map)
 
-    # We create groups here and treat multi_dataframes a bit differently due to the way Plotly barchart graphs handle multiple values for a data point; if multi_dataframes_id_col is specified then
-    # it will plot all series on the same graph(s); otherwise duplicates will be stacked or overlayed existing ones.  For separate graphs by multi_dataframes_id_col, one should add a Series column
+    # We create groups here and treat multiple_dataframes a bit differently due to the way Plotly barchart graphs handle multiple values for a data point; if multiple_dataframes_id_col is specified then
+    # it will plot all series on the same graph(s); otherwise duplicates will be stacked or overlayed existing ones.  For separate graphs by multiple_dataframes_id_col, one should add a Series column
     # to the dataframe and use the split_by_variable in order to create them - may address this differently in the future
     dfs_grouped = {}
-    if split_by_variable and multi_dataframes_id_col:  #{'F1':{'Series 1': [0-22], 'Series 2': [24-46]}, 'F2': {'Series 1': [1-23], 'Series 2': [25-47]}} # group/split by both
+    if split_by_variable and multiple_dataframes_id_col:  #{'F1':{'Series 1': [0-22], 'Series 2': [24-46]}, 'F2': {'Series 1': [1-23], 'Series 2': [25-47]}} # group/split by both
         for key, df_i in dfs.items():
             series_name, split_var = key.split(dfs_delimiter, 1)
             dfs_grouped.setdefault(split_var, {})
@@ -939,7 +938,7 @@ def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, ba
             split_var = key.replace('All' + dfs_delimiter, '') if key.startswith('All' + dfs_delimiter) else key
             dfs_grouped.setdefault(split_var, {})
             dfs_grouped[split_var]['All'] = df_i
-    elif multi_dataframes_id_col: # {'All': {'Series1': [0-23], 'Series2': [24-47]}} # group only by dfs as specified by multi_dataframes_id_col
+    elif multiple_dataframes_id_col: # {'All': {'Series1': [0-23], 'Series2': [24-47]}} # group only by dfs as specified by multiple_dataframes_id_col
         dfs_grouped['All'] = dfs
     else: # {'All':{'All': [0-23]}} # no grouping
         dfs_grouped['All'] = {'All': list(dfs.values())[0]}
@@ -991,7 +990,7 @@ def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, ba
                 df_i_sorted = df_i
                 number_per_group = None
 
-            color_shift_factor = (series_index / (number_of_dfs if number_of_dfs > 1 else 1)) / 2 if not multi_dataframes_reverse else (series_index / (number_of_dfs if number_of_dfs > 1 else 1))
+            color_shift_factor = (series_index / (number_of_dfs if number_of_dfs > 1 else 1)) / 2 if not multiple_dataframes_reverse else (series_index / (number_of_dfs if number_of_dfs > 1 else 1))
             updated_colors = [lighten_rgb(c, color_shift_factor) for c in selected_colors_from_colorscale]
 
             for j, var in enumerate(barchart_vars):
@@ -1044,7 +1043,7 @@ def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, ba
 
         # Add labels and brackets for the barchart_group_vars_by
         if barchart_group_vars_by and number_per_group is not None:
-            total_bars = len(barchart_vars) * len(df_i_sorted[barchart_x]) * number_of_dfs  # if multi_dataframes_id_col else len(barchart_vars)*len(df_i_sorted[barchart_x])*number_of_dfs
+            total_bars = len(barchart_vars) * len(df_i_sorted[barchart_x]) * number_of_dfs  # if multiple_dataframes_id_col else len(barchart_vars)*len(df_i_sorted[barchart_x])*number_of_dfs
             group_ranges = {}
             current_pos = 0
             for group_value, count_per_group in number_per_group.items(): # total bars for this group (consider multiple Y variables)
@@ -1073,7 +1072,7 @@ def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, ba
 
         categoryarray_labels = df_i_sorted[barchart_x].tolist()
         xaxis_dict = get_axis_dict({'All': df_i_sorted.copy()}, -1, barchart_x, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, category_suffix)
-        graph_title_updated = set_graph_title((series_key + dfs_delimiter + key), graph_title, split_by_variable, multi_dataframes_id_col, 1, mdi_single_df, graph_index, dfs_delimiter) # forcing number_of_dfs to 1 for graph title due to the way Barchart is set up
+        graph_title_updated = set_graph_title((series_key + dfs_delimiter + key), graph_title, split_by_variable, multiple_dataframes_id_col, 1, mdi_single_df, graph_index, dfs_delimiter) # forcing number_of_dfs to 1 for graph title due to the way Barchart is set up
         fig.update_layout(
             title=dict(text=graph_title_updated, font=graph_titlefont, x=0, xanchor='left', y=0.97, yanchor='top', automargin=True) if graph_title_updated not in [None, ''] else None,
             barmode=barmode,
@@ -1090,7 +1089,7 @@ def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, ba
 
     return plots
 
-def generate_dumbbell_graph(dfs, x_variable, y_variable, color_variable, symbol_variable, x_grouped_over_vars, colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_col, \
+def generate_dumbbell_graph(dfs, x_variable, y_variable, color_variable, symbol_variable, x_grouped_over_vars, colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_col, \
                             number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns):
 
     # Fill the numeric columns with 0 for na or remove rows if in plate_variables_columns; currently only y_variable can be numeric;
@@ -1167,7 +1166,7 @@ def generate_dumbbell_graph(dfs, x_variable, y_variable, color_variable, symbol_
                         name = f'{symbol_var}'
                     ))
 
-        graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter)
+        graph_title_updated = set_graph_title(key, graph_title, split_by_variable, multiple_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter)
         fig.update_layout(
             title=dict(text=graph_title_updated, font=graph_titlefont, x=0, xanchor='left', y=0.97, yanchor='top', automargin=True) if graph_title_updated not in [None, ''] else None,
             margin=dict(t=80 if graph_title_updated not in [None, ''] else 60),

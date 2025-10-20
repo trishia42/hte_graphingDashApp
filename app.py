@@ -234,9 +234,9 @@ app.layout = dbc.Container([
                     )
                 ], style={'marginRight': '0rem', 'paddingLeft': '0.25rem', 'fontSize': '0.8rem', 'marginBottom': '0rem'}),
             ], style={'marginBottom': '0rem'}),
-            html.Div(id='multi-series-names-wrapper', children=[
+            html.Div(id='multiple-series-names-wrapper', children=[
                 dbc.Label('Multi series names:', style={'marginTop': '0rem', 'marginBottom': '0.1rem', 'fontSize':'0.8rem'}),
-                dbc.Input(id='multi-series-names', type='text', placeholder='Series 1|Series 2', disabled=True, style={'marginBottom': '0.15rem', 'fontSize':'0.8rem'}),
+                dbc.Input(id='multiple-series-names', type='text', placeholder='Series 1|Series 2', disabled=True, style={'marginBottom': '0.15rem', 'fontSize':'0.8rem'}),
             ], style={'marginTop': '-0.5rem', 'marginBottom': '0rem'}),
             dbc.Label('Graph Title(s)', style={'marginTop':'0rem', 'marginBottom':'0.1rem', 'fontSize':'0.8rem'}),
             dbc.Input(id='graph-title', type='text', placeholder='Title1|Title2', style={'marginBottom': '1rem', 'fontSize': '0.8rem'}),
@@ -253,7 +253,7 @@ app.layout = dbc.Container([
         ], width=sidebar_width, style={'borderRight': '0.075rem solid #ddd', 'overflowY': 'scroll', 'height':'100vh', 'scrollbarwidth':'none', 'msOverflowStyle':'none'}),
         dbc.Col([
             html.Div(id='app-note', children=[
-                'App will spin down after 15 minutes of inactivity, requiring another 50-60 seconds to reactivate.  This is a work in progress; please report of any issues at the ',
+                'App will spin down after 15 minutes of inactivity, requiring another 50-60 seconds to reactivate.  This is a work in progress; please report any issues/bugs (I expect a lot of them) at the ',
                 html.A('GitHub Repository', href='https://github.com/trishia42/hte_graphingDashApp', target='_blank', style={'color': '#1f77b4', 'textDecoration': 'underline'}), '.'
                 ],
                 style={'backgroundColor': '#f8f9fa','padding': '0.125rem 0.125rem', 'marginBottom': '0.3rem', 'marginTop': '0.3rem', 'fontSize': '0.75rem', 'width': '100%','fontStyle':'italic'}),
@@ -313,8 +313,23 @@ app.layout = dbc.Container([
     Output('scatter-x-variable', 'value', allow_duplicate=True),
     Output({'type': 'listbox', 'subtype': 'scatter-x-subplots-variables'}, 'value', allow_duplicate=True),
     Output('scatter-z-variable', 'value', allow_duplicate=True),
-    Output('multi-series-names', 'value', allow_duplicate=True),
-    Output('multi-series-names', 'disabled', allow_duplicate=True),
+    Output('multiple-series-names', 'value', allow_duplicate=True),
+    Output('multiple-series-names', 'disabled', allow_duplicate=True),
+
+    Output('heatmap-add-row-variable-wrapper', 'key', allow_duplicate=True),
+    Output({'type': 'listbox', 'subtype': 'heatmap-add-row-variable'}, 'options', allow_duplicate=True),
+    Output({'type': 'listbox', 'subtype': 'heatmap-add-row-variable'}, 'value', allow_duplicate=True),
+    Output('heatmap-add-column-variable-wrapper', 'key', allow_duplicate=True),
+    Output({'type': 'listbox', 'subtype': 'heatmap-add-column-variable'}, 'options', allow_duplicate=True),
+    Output({'type': 'listbox', 'subtype': 'heatmap-add-column-variable'}, 'value', allow_duplicate=True),
+
+    Output('piechart-add-row-variable-wrapper', 'key', allow_duplicate=True),
+    Output({'type': 'listbox', 'subtype': 'piechart-add-row-variable'}, 'options', allow_duplicate=True),
+    Output({'type': 'listbox', 'subtype': 'piechart-add-row-variable'}, 'value', allow_duplicate=True),
+    Output('piechart-add-column-variable-wrapper', 'key', allow_duplicate=True),
+    Output({'type': 'listbox', 'subtype': 'piechart-add-column-variable'}, 'options', allow_duplicate=True),
+    Output({'type': 'listbox', 'subtype': 'piechart-add-column-variable'}, 'value', allow_duplicate=True),
+
     Input('graph-selection', 'value'),
     Input('colorscale', 'value'),
     Input('colorscale-reverse', 'value'),
@@ -325,15 +340,19 @@ app.layout = dbc.Container([
     Input('scatter-z-variable', 'value'),
     Input('multiple-dataframes-id-column', 'value'),
     Input('multiple-dataframes-handling', 'value'),
+    State('df-row-variable-store', 'data'),
+    State('df-column-variable-store', 'data'),
+    State('df-categorical-columns-store', 'data'),
     prevent_initial_call = True
 )
 #</editor-fold>
 
-def UIInteractivity(graph_selection, colorscale_name, colorscale_reverse, stored_dataframe, multi_dataframes_id_column_options, scatter_x_variable, scatter_x_subplots_variables, \
-                    scatter_z_variable, multiple_dataframes_id_column_value, multiple_dataframes_handling):
+def UIInteractivity(graph_selection, colorscale_name, colorscale_reverse, stored_dataframe, multiple_dataframes_id_column_options, scatter_x_variable, scatter_x_subplots_variables, \
+                    scatter_z_variable, multiple_dataframes_id_column_value, multiple_dataframes_handling, df_row_variable, df_column_variable, df_categorical_columns):
 
-    parallel_output, scatter_output, heatmap_output, piechart_output, barchart_output, dumbbell_output, colorscale_preview, multi_dataframes_id_column_state, multi_dataframes_id_column_value, \
-        scatter_x_variable_output, scatter_x_subplots_variables_output, scatter_z_variable_output, multi_series_names_value_output, multi_series_names_disabled_output, = [dash.no_update]*14
+    parallel_output, scatter_output, heatmap_output, piechart_output, barchart_output, dumbbell_output, colorscale_preview, multiple_dataframes_id_column_state, multiple_dataframes_id_column_value, \
+        scatter_x_variable_output, scatter_x_subplots_variables_output, scatter_z_variable_output, multi_series_names_value_output, multi_series_names_disabled_output, additional_row_columns_list, \
+        additional_column_columns_list = [dash.no_update]*16
 
     try:
         trigger = ctx.triggered_id
@@ -350,12 +369,14 @@ def UIInteractivity(graph_selection, colorscale_name, colorscale_reverse, stored
             dumbbell_output = show('Dumbbell Treillis')
 
             if graph_selection in ['Heatmap', 'Pie Charts']:
-                multi_dataframes_id_column_state = True
-                if multi_dataframes_id_column_options and stored_dataframe:
-                    multi_dataframes_id_column_value = 'Row/Column' if any(opt['value'] == 'Row/Column' for opt in multi_dataframes_id_column_options) else None
+                multiple_dataframes_id_column_state = True
+                if multiple_dataframes_id_column_options and stored_dataframe:
+                    multiple_dataframes_id_column_value = 'Row/Column' if any(opt['value'] == 'Row/Column' for opt in multiple_dataframes_id_column_options) else None
+                    row_consistent_columns, column_consistent_columns = get_consistent_columns(next(iter((split_dataframe(pd.read_json(io.StringIO(stored_dataframe['data']), orient='split'), multiple_dataframes_id_column_value)).values())) if multiple_dataframes_handling == 'First' else pd.read_json(io.StringIO(stored_dataframe['data']), orient='split').copy(), df_categorical_columns, df_row_variable, df_column_variable)
+                    additional_row_columns_list, additional_column_columns_list = [{'label': option, 'value': option} for option in row_consistent_columns], [{'label': option, 'value': option} for option in column_consistent_columns]
             else:
-                multi_dataframes_id_column_state = False
-                multi_dataframes_id_column_value = None
+                multiple_dataframes_id_column_state = False
+                multiple_dataframes_id_column_value = None
         elif trigger == 'scatter-x-variable' or trigger == 'scatter-z-variable':
             if scatter_x_variable is not None or scatter_z_variable is not None:
                 scatter_x_subplots_variables_output = None
@@ -367,13 +388,17 @@ def UIInteractivity(graph_selection, colorscale_name, colorscale_reverse, stored
                 multi_series_names_value_output, multi_series_names_disabled_output = dash.no_update, False
             else:
                 multi_series_names_value_output, multi_series_names_disabled_output = None, True
+            if multiple_dataframes_id_column_value is not None and graph_selection in ['Heatmap', 'Pie Charts'] and stored_dataframe:
+                row_consistent_columns, column_consistent_columns = get_consistent_columns(next(iter((split_dataframe(pd.read_json(io.StringIO(stored_dataframe['data']), orient='split'), multiple_dataframes_id_column_value)).values())) if multiple_dataframes_handling == 'First' else pd.read_json(io.StringIO(stored_dataframe['data']), orient='split').copy(), df_categorical_columns, df_row_variable, df_column_variable)
+                additional_row_columns_list, additional_column_columns_list = [{'label': option, 'value': option} for option in row_consistent_columns], [{'label': option, 'value': option} for option in column_consistent_columns]
 
-        return parallel_output, scatter_output, heatmap_output, piechart_output, barchart_output, dumbbell_output, colorscale_preview, multi_dataframes_id_column_state, \
-            multi_dataframes_id_column_value, scatter_x_variable_output, scatter_x_subplots_variables_output, scatter_z_variable_output, multi_series_names_value_output, multi_series_names_disabled_output
+        return parallel_output, scatter_output, heatmap_output, piechart_output, barchart_output, dumbbell_output, colorscale_preview, multiple_dataframes_id_column_state, \
+            multiple_dataframes_id_column_value, scatter_x_variable_output, scatter_x_subplots_variables_output, scatter_z_variable_output, multi_series_names_value_output, multi_series_names_disabled_output, \
+            str(uuid.uuid4()), additional_row_columns_list, [], str(uuid.uuid4()), additional_column_columns_list, [], str(uuid.uuid4()), additional_row_columns_list, [], str(uuid.uuid4()), additional_column_columns_list, []
 
     except Exception as e:
         exception_message = generate_exception_message(e)
-        return [dash.no_update] * (14 - 1) + [exception_message]
+        return [dash.no_update] * (14 + 12 - 1) + [exception_message]
 
 number_of_load_data_outputs = 66 + 42
 #<editor-fold desc="**app.callback => Handle uploads/test data and programmatic changes to data table">
@@ -480,8 +505,8 @@ number_of_load_data_outputs = 66 + 42
     Output('multiple-dataframes-id-column', 'options', allow_duplicate=True),
     Output('multiple-dataframes-id-column', 'value', allow_duplicate=True),
     Output('multiple-dataframes-id-column', 'disabled', allow_duplicate=True),
-    Output('multi-series-names-wrapper', 'key', allow_duplicate=True),
-    Output('multi-series-names', 'value', allow_duplicate=True),
+    Output('multiple-series-names-wrapper', 'key', allow_duplicate=True),
+    Output('multiple-series-names', 'value', allow_duplicate=True),
 
     Output('datatable', 'data', allow_duplicate=True),
     Output('datatable', 'columns', allow_duplicate=True),
@@ -514,9 +539,8 @@ number_of_load_data_outputs = 66 + 42
 )
 #</editor-fold>
 
-def load_data(upload_contents, load_filename, n_clicks_test_data, n_clicks_add_row_column, datatable_timestamp, datatable_sort_by,
-                  datatable_filter_query, datatable_columns, datatable_data, add_row_column_col_id, add_row_column_plate_rows,
-                  add_row_column_plate_columns, graph_selection):
+def load_data(upload_contents, load_filename, n_clicks_test_data, n_clicks_add_row_column, datatable_timestamp, datatable_sort_by, datatable_filter_query, datatable_columns, datatable_data, \
+              add_row_column_col_id, add_row_column_plate_rows, add_row_column_plate_columns, graph_selection):
 
     # Note; we are updating datatable_timestamp with itself since otherwise it would not trigger graph callback on changes
     trigger, datatable_modified, sort_by_output, filter_query_output, new_df, status = None, False, dash.no_update, dash.no_update, False, '' # on a new load
@@ -628,19 +652,21 @@ def load_data(upload_contents, load_filename, n_clicks_test_data, n_clicks_add_r
 
         status = status + str(len(df)) + ' data rows and ' + str( len(df.columns)) + ' columns.'
         style_cell_conditional = [{'if': {'column_id': col}, 'maxWidth': '18.75rem', 'minWidth': '6.25rem', 'width': 'auto'} for col in df.columns]
-        original_cols, numeric_cols, categorical_cols, df_row_variable, df_column_variable = update_dataframe_data(df, None, category_suffix)
+        datatable_data = df.to_dict('records') if (new_df or trigger == 'add-row-column-button') else dash.no_update
+        datatable_columns = [{'name': col, 'id': col, 'editable': True, 'deletable': True, 'renamable': True} for col in df.columns] if (new_df or trigger == 'add-row-column-button') else dash.no_update
+        original_columns, numeric_columns, categorical_columns, df_row_variable, df_column_variable = update_dataframe_data(df, None, category_suffix)
 
-        row_consistent_columns, column_consistent_columns = get_consistent_columns(df, categorical_cols, df_row_variable, df_column_variable)
+        row_consistent_columns, column_consistent_columns = get_consistent_columns(df, categorical_columns, df_row_variable, df_column_variable)
         stored_dataframe = {'data': df.to_json(date_format='iso', orient='split'),
                             'dtypes': df.dtypes.astype(str).to_dict(),
                             'categories': {col: df[col].cat.categories.tolist() for col in df.select_dtypes('category')},
                             'ordered': {col: df[col].cat.ordered for col in df.select_dtypes('category')}}
 
-        categorical_columns_list = [{'label': option, 'value': option} for option in categorical_cols]
-        numerical_columns_list = [{'label': option, 'value': option} for option in numeric_cols]
-        all_columns_list = [{'label': option, 'value': option} for option in original_cols]
-        add_row_columns_list = [{'label': option, 'value': option} for option in row_consistent_columns]
-        add_column_columns_list = [{'label': option, 'value': option} for option in column_consistent_columns]
+        categorical_columns_list = [{'label': option, 'value': option} for option in categorical_columns]
+        numerical_columns_list = [{'label': option, 'value': option} for option in numeric_columns]
+        all_columns_list = [{'label': option, 'value': option} for option in original_columns]
+        additional_row_columns_list = [{'label': option, 'value': option} for option in row_consistent_columns]
+        additional_column_columns_list = [{'label': option, 'value': option} for option in column_consistent_columns]
         multiple_dataframes_handling_options = [{'label': 'First', 'value': 'First'}, {'label': 'All', 'value': 'All'}]
         multiple_dataframes_id_col_options = all_columns_list.copy()
         if df_row_variable and df_column_variable:
@@ -653,7 +679,7 @@ def load_data(upload_contents, load_filename, n_clicks_test_data, n_clicks_add_r
 
         return (
             # data
-            stored_dataframe, f'Current file: {load_filename}' if new_df else dash.no_update, original_cols, df_row_variable, df_column_variable, numeric_cols, categorical_cols,
+            stored_dataframe, f'Current file: {load_filename}' if new_df else dash.no_update, original_columns, df_row_variable, df_column_variable, numeric_columns, categorical_columns,
             # parallel
             str(uuid.uuid4()), all_columns_list, [] if new_df else dash.no_update,
             str(uuid.uuid4()), numerical_columns_list, next((opt['value'] for opt in numerical_columns_list if opt['value'].lower().startswith('yield')), None) if new_df else dash.no_update,
@@ -668,13 +694,13 @@ def load_data(upload_contents, load_filename, n_clicks_test_data, n_clicks_add_r
             str(uuid.uuid4()), all_columns_list, next((opt['value'] for opt in all_columns_list if opt['value'].lower().startswith('yield')), None) if new_df else dash.no_update,
             # heatmap
             str(uuid.uuid4()), all_columns_list, next((opt['value'] for opt in all_columns_list if opt['value'].lower().startswith('yield')), all_columns_list[0]['value']) if new_df else dash.no_update,
-            str(uuid.uuid4()), add_row_columns_list, [] if new_df else dash.no_update,
-            str(uuid.uuid4()), add_column_columns_list, [] if new_df else dash.no_update,
+            str(uuid.uuid4()), additional_row_columns_list, [] if new_df else dash.no_update,
+            str(uuid.uuid4()), additional_column_columns_list, [] if new_df else dash.no_update,
             # piecharts
             False if new_df else dash.no_update,
             str(uuid.uuid4()), numerical_columns_list, [] if new_df else dash.no_update,
-            str(uuid.uuid4()), add_row_columns_list, [] if new_df else dash.no_update,
-            str(uuid.uuid4()), add_column_columns_list, [] if new_df else dash.no_update,
+            str(uuid.uuid4()), additional_row_columns_list, [] if new_df else dash.no_update,
+            str(uuid.uuid4()), additional_column_columns_list, [] if new_df else dash.no_update,
             # bars
             str(uuid.uuid4()), all_columns_list, None if new_df else dash.no_update,
             str(uuid.uuid4()), numerical_columns_list, [] if new_df else dash.no_update,
@@ -693,8 +719,9 @@ def load_data(upload_contents, load_filename, n_clicks_test_data, n_clicks_add_r
             multiple_dataframes_id_col_options, multiple_dataframes_id_col_value, multiple_dataframes_id_col_state,
             str(uuid.uuid4()), None if new_df else dash.no_update,
 
-            df.to_dict('records') if (new_df or trigger == 'add-row-column-button') else dash.no_update,
-            [{'name': col, 'id': col, 'editable': True, 'deletable': True, 'renamable': True} for col in df.columns] if (new_df or trigger == 'add-row-column-button') else dash.no_update, {'display': 'block'},
+            ##df.to_dict('records') if (new_df or trigger == 'add-row-column-button') else dash.no_update,
+            ##[{'name': col, 'id': col, 'editable': True, 'deletable': True, 'renamable': True} for col in df.columns] if (new_df or trigger == 'add-row-column-button') else dash.no_update,
+            datatable_data, datatable_columns, {'display': 'block'},
             style_cell_conditional, sort_by_output, filter_query_output, [] if new_df else dash.no_update,
             {'display': 'none'} if new_df else dash.no_update, None if new_df else dash.no_update, datatable_modified, datatable_timestamp, None if new_df else dash.no_update, status,
             )
@@ -762,7 +789,7 @@ number_of_graph_outputs = 5
     State('multiple-dataframes-handling', 'value'),
     State('multiple-dataframes-id-column', 'value'),
     State('multiple-dataframes-reverse', 'value'),
-    State('multi-series-names', 'value'),
+    State('multiple-series-names', 'value'),
     State('colorscale-reverse', 'value'),
     State('graph-title', 'value'),
     State('graph-container', 'style'),
@@ -772,10 +799,10 @@ number_of_graph_outputs = 5
 
 def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, graph_selection, df_row_variable, df_column_variable, parallel_variables, parallel_color_variable, scatter_x_variable, \
                                 scatter_x_subplots_variables, scatter_y_variable, scatter_z_variable, scatter_surface, scatter_size_variable, scatter_symbol_variable, scatter_color_variable, \
-                                heatmap_color_variable, heatmap_add_row_variable, heatmap_add_column_variable, heatmap_smooth, piechart_variables, piechart_add_row_variable, piechart_add_column_variable, \
+                                heatmap_color_variable, heatmap_additional_row_variable, heatmap_additional_column_variable, heatmap_smooth, piechart_variables, piechart_additional_row_variable, piechart_additional_column_variable, \
                                 piechart_normalization_type, piechart_normalization_value, piechart_donut, piechart_cakeplots, barchart_x_variable, barchart_variables, barchart_pattern_variable, \
                                 barchart_group_variables_by, barchart_barmode_option, dumbbell_x_variable, dumbbell_y_variable, dumbbell_grouped_variables, dumbbell_color_variable, dumbbell_symbol_variable, \
-                                colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_handling, multi_dataframes_id_column, multi_dataframes_reverse, multi_dataframes_series_names, colorscale_reverse, \
+                                colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_handling, multiple_dataframes_id_column, multiple_dataframes_reverse, multiple_dataframes_series_names, colorscale_reverse, \
                                 graph_title, current_graph_container_style):
 
     trigger, figs, graphs, grid, grid_columns, graph_container_style, status, dfs_delimiter = None, [], [], [], 1, {'display': 'none'}, '', '|=%' # we want to use something that will not be used
@@ -813,40 +840,23 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
         return [dash.no_update] * (number_of_graph_outputs - 1) + [exception_message]
 
     try:
-        # With no multi_dataframes_id_column, dfs = {'All': data}; with {'Series 1': data, 'Series 2': data}
+        # With no multiple_id_column, dfs = {'All': data}; with {'Series 1': data, 'Series 2': data}
         mdi_single_df = False
-        if multi_dataframes_id_column is not None:
-            if multi_dataframes_id_column == 'Row/Column' or is_numeric_dtype(df[multi_dataframes_id_column]):
-                # Updated here so that for numerical multi_dataframes_id_col, it will create series not from unique values but from repeated groups, even if some values are missing, and can also handle categorical
-                groups, current_group, current_idx, seen = [], [], [], set()
-                for idx, row in df.iterrows():
-                    key = (row['Row'], row['Column']) if multi_dataframes_id_column == 'Row/Column' else (row[multi_dataframes_id_column])
-                    if ((isinstance(key, tuple) and any(pd.isna(v) for v in key)) or (not isinstance(key, tuple) and pd.isna(key))): # don't include rows with missing values
-                        continue
-                    if key in seen:
-                        groups.append(df.loc[current_idx])
-                        current_idx, seen = [idx], {key}
-                    else:
-                        current_idx.append(idx)
-                        seen.add(key)
-                if current_idx:
-                    groups.append(df.loc[current_idx])
-                dfs = {f'Series {i + 1}': g for i, g in enumerate(groups)}
-            else:
-                dfs = {str(item): g for item, g in df.groupby(multi_dataframes_id_column, observed=False)}
+        if multiple_dataframes_id_column is not None:
+            dfs = split_dataframe(df, multiple_dataframes_id_column)
             number_of_dfs = len(dfs)
-            if multi_dataframes_reverse:
+            if multiple_dataframes_reverse:
                 dfs = dict(reversed(list(dfs.items())))
-            if multi_dataframes_handling == 'First':
+            if multiple_dataframes_handling == 'First':
                 dfs = {next(iter(dfs)): dfs[next(iter(dfs))]}
                 number_of_dfs = 1
                 mdi_single_df = True
-            elif multi_dataframes_handling == 'Last':
+            elif multiple_dataframes_handling == 'Last':
                 dfs = {next(reversed(dfs)): dfs[next(reversed(dfs))]}
                 number_of_dfs = 1
                 mdi_single_df = True
-            if multi_dataframes_series_names:
-                names = multi_dataframes_series_names.split('|')
+            if multiple_dataframes_series_names:
+                names = multiple_dataframes_series_names.split('|')
                 dfs = {name: subdf for name, subdf in zip(names, dfs.values())}
         else:
             number_of_dfs = 1
@@ -884,7 +894,7 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
             if not parallel_variables or not parallel_color_variable:
                 status = 'Need to select parallel variables and color variable.' if trigger == 'generate-button' else ''
             else:
-                figs = generate_parallel_coordinates_graph(dfs, parallel_variables, parallel_color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_column, \
+                figs = generate_parallel_coordinates_graph(dfs, parallel_variables, parallel_color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, \
                                                                              number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated parallel coordinates graph.'
         elif (graph_selection == 'Scatter'):
@@ -892,11 +902,11 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
                 status = 'Need to select x and y variables.' if trigger == 'generate_button' else ''
             else:
                 figs = generate_scatter_bubble_graph(dfs, scatter_x_variable, scatter_x_subplots_variables, scatter_y_variable, scatter_z_variable, scatter_surface, scatter_size_variable, scatter_symbol_variable, \
-                                                     scatter_color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_column, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
+                                                     scatter_color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated scatter/bubble graph - 3d ignored when doing subplots.' if scatter_x_subplots_variables and scatter_z_variable else 'Generated scatter/bubble graph.'
         elif (graph_selection == 'Heatmap' or graph_selection == 'Pie Charts'):
             if (df_row_variable == None) or (df_column_variable == None):
-                status = graph_selection + ' graphs require a valid Row and Column columns in the dataframe/provided data file.' if trigger == 'generate-button' else ''
+                status = graph_selection + ' graphs require a valid Row and Column columns in the dataframe/provided data file as they are configured for plate formats.' if trigger == 'generate-button' else ''
             elif isinstance(next(iter(dfs.values()))[df_column_variable].dtype, CategoricalDtype): # we can check the only one since types were assigned on the df before splitting into dfs
                 status = 'Dataframe type for Column must be numerical within all dataframes for ' + graph_selection + ' graphs.' # because we can't determine column number without knowing total number of columns
             elif isinstance(next(iter(dfs.values()))[df_row_variable].dtype, CategoricalDtype):
@@ -910,9 +920,9 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
                 if not heatmap_color_variable:
                     status = 'Need to select heatmap color variable.' if trigger == 'generate-button' else ''
                 else:
-                    figs, number_of_figure_rows, number_of_figure_columns = generate_heatmap_graph(dfs, df_row_variable, df_column_variable, heatmap_color_variable, heatmap_add_row_variable, \
-                                                                                           heatmap_add_column_variable, heatmap_smooth, colorscale, split_by_variable, plate_rows_as_alpha, \
-                                                                                           multi_dataframes_id_column, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
+                    figs, number_of_figure_rows, number_of_figure_columns = generate_heatmap_graph(dfs, df_row_variable, df_column_variable, heatmap_color_variable, heatmap_additional_row_variable, \
+                                                                                           heatmap_additional_column_variable, heatmap_smooth, colorscale, split_by_variable, plate_rows_as_alpha, \
+                                                                                           multiple_dataframes_id_column, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                     status = 'Generated heatmap graph.'
             else:  # so Pie Charts
                 if not piechart_variables:
@@ -940,22 +950,22 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
 
                     if valid_normalization_value:
                         status = 'Generated pie charts.'
-                        figs, number_of_figure_rows, number_of_figure_columns = generate_piecharts_graph(dfs, df_row_variable, df_column_variable,  piechart_variables, piechart_add_row_variable, piechart_add_column_variable, piechart_normalization_index, \
-                                                        normalization_value, piechart_donut, piechart_cakeplots, colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_column, number_of_dfs, \
-                                                        multi_dataframes_reverse, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
+                        figs, number_of_figure_rows, number_of_figure_columns = generate_piecharts_graph(dfs, df_row_variable, df_column_variable,  piechart_variables, piechart_additional_row_variable, piechart_additional_column_variable, piechart_normalization_index, \
+                                                        normalization_value, piechart_donut, piechart_cakeplots, colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, number_of_dfs, \
+                                                        multiple_dataframes_reverse, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
         elif (graph_selection == 'Bar Chart'):
             if not barchart_x_variable or not barchart_variables:
                 status = 'Need to select x and y variables.' if trigger == 'generate-button' else ''
             else:
                 figs = generate_barchart_graph(dfs, barchart_x_variable, barchart_variables, barchart_pattern_variable, barchart_group_variables_by, barchart_barmode_option, \
-                                                colorscale, split_by_variable, plate_rows_as_alpha, multi_dataframes_id_column, multi_dataframes_reverse, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
+                                                colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, multiple_dataframes_reverse, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated bar chart graph.'
         elif (graph_selection == 'Dumbbell Treillis'):
             if not dumbbell_x_variable or not dumbbell_y_variable or not (dumbbell_grouped_variables or dumbbell_color_variable or dumbbell_symbol_variable):
                 status = 'Need to select x, y, and grouped over variables for dumbbell treillis plot.' if trigger == 'generate-button' else ''
             else:
                 figs = generate_dumbbell_graph(dfs, dumbbell_x_variable, dumbbell_y_variable, dumbbell_color_variable, dumbbell_symbol_variable, dumbbell_grouped_variables, colorscale, \
-                                                                 split_by_variable, plate_rows_as_alpha, multi_dataframes_id_column, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
+                                                                 split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated dumbbell treillis graph.'
     except Exception as e:
         exception_message = 'Exception in generating ' + graph_selection + ' graph: ' + generate_exception_message(e)
