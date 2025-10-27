@@ -2,7 +2,7 @@ import pandas as pd
 import dash
 from dash import dcc, html, Input, Output, State, no_update, ctx, dash_table, MATCH
 import dash_bootstrap_components as dbc
-import io, uuid
+import io, uuid, base64
 from datetime import datetime
 import operator as op
 import re
@@ -66,12 +66,13 @@ def generate_colorscale_dropdown_options(reverse_option): # Create options with 
                         'width': '6.75rem',
                         'height': '1.5rem',
                         'marginLeft': '0.125rem',
+                        'marginRight': '0.125rem',
                         'background': colorscale_to_css_gradient(cs, reverse_option),
                         'border': '0.05rem solid #ccc',
-                        'borderRadius': '0.05rem'
+                        'borderRadius': '0.05rem',
                     }
                 ),
-            ], style={'display': 'flex', 'alignItems': 'center'}),
+            ], style={'display': 'flex', 'alignItems': 'center', 'flexWrap': 'noWrap', 'maxWidth': 'calc(100% - 1rem)'}),
             'value': cs
         }
         for cs in colorscale_options
