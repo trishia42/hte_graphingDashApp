@@ -1,0 +1,17 @@
+/* assets/custom.css */
+
+.btn-custom-press:active {
+    transform: scale(0.98) translateY(2px); /* Slightly shrink and move down */
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.2) inset; /* Optional: add an inset shadow */
+    transition: transform 0.1s ease-out, box-shadow 0.1s ease-out; /* Smooth transition */
+}
+
+.tight-checkbox {
+    margin-right: 0.1rem !important;   /* reduce space between checkbox and label */
+    padding: 0 !important;
+}
+
+.form-check-input {
+    margin-right: 0.1rem !important;  /* adjust spacing as needed */
+    padding: 0 !important;
+}
