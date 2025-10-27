@@ -109,6 +109,7 @@ def lighten_rgb(rgb_str, factor): # lighten a rgb(r,g,b) string by a given facto
     return rgb_str
 
 def set_graph_title(key, graph_title, split_by_variable, multi_dataframes_id_col, number_of_dfs, mdi_single_df, graph_index, dfs_delimiter):
+
     graph_name = None
     if dfs_delimiter in key: # we should probably correct this later as it may be in user-provided data otherwise
         series_name, split_var_name = key.split(dfs_delimiter, 1)
@@ -205,12 +206,23 @@ def generate_exception_message(exc: Exception) -> str:
             break
     if user_frame:
         filename, function, line = os.path.basename(user_frame.filename), user_frame.name, user_frame.lineno
-        #exception_message = f'{type(exc).__name__}: {exc} in function {function} from file {filename} at line {line}.'
         exception_message = f'Exception in function {function} from file {filename} at line {line} - {type(exc).__name__}: {str(exc).splitlines()[0]}.'
-
     else: # fallback to full message if nothing matches
-        #exception_message = f'{type(exc).__name__}: {exc}.'
         exception_message = f'Exception - {type(exc).__name__}.'
 
     return exception_message
 
+def draw_colorscale_preview(colorscale_name, reverse_option): # previously used when we had a full preview; migrated to having the previews inside the dropdown now
+    if reverse_option:
+        colorscale_name = colorscale_name + '_r'
+    z = [[i for i in range(100)]]
+    fig = go.Figure(data=go.Heatmap(
+        z = z, colorscale=colorscale_name, showscale=False
+    ))
+    fig.update_layout(
+        margin=dict(l=2, r=1, t=0, b=2), xaxis=dict(showticklabels=False, showgrid=False, zeroline=False), yaxis=dict(showticklabels=False, showgrid=False, zeroline=False)
+    )
+    fig.add_shape(
+        type='rect', x0=0, y0=0, x1=1, y1=1, xref='paper', yref='paper', line=dict(color='black', width=1), fillcolor='rgba(0,0,0,0)'  # Make it transparent (or choose a background color)
+    )
+    return dcc.Graph(id='colorscale-preview', figure=fig, config={'displayModeBar': False, 'responsive': True}, style={'width': '95%', 'height':'2rem', 'marginTop':'0rem'})

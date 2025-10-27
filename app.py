@@ -1,18 +1,15 @@
 import pandas as pd
 import dash
-from dash import dcc, html, Input, Output, State, ctx, ALL, MATCH, dash_table, no_update
+from dash import dcc, html, Input, Output, State, no_update, ctx, dash_table, MATCH
 import dash_bootstrap_components as dbc
-from dash.dependencies import MATCH
-import base64, io, uuid
-import math
+import io, uuid
 from datetime import datetime
 import operator as op
-import traceback
-import os
 import re
 import zipfile
 import plotly.graph_objects as go
 import plotly.io as pio
+import plotly.express as px
 from miscellaneousFunctions import *
 from graphingFunctions import *
 
@@ -29,11 +26,14 @@ def generate_dropdown_control(dropdown_id, options, label, label_style=None, dro
     if add_component is not None:
         row_children.append(dbc.Col(add_component))
 
+    dropdown_options = options if (options and isinstance(options[0], dict) and 'label' in options[0] and 'value' in options[0]) else ([{'label': i, 'value': i} for i in options] if options else [])
+
     return dbc.Form([
         dbc.Row(row_children, align='center'),
         dcc.Dropdown(
             id={'type': 'listbox', 'subtype': dropdown_id} if listbox else dropdown_id,
-            options=[{'label': i, 'value': i} for i in options] if options else [],
+            #options=[{'label': i, 'value': i} for i in options] if options else [],
+            options=dropdown_options,
             value=value,
             multi=multi,
             disabled=disabled,
@@ -44,25 +44,40 @@ def generate_dropdown_control(dropdown_id, options, label, label_style=None, dro
         )
     ])
 
-def draw_colorscale_preview(colorscale_name, reverse_option):
-    if reverse_option:
-        colorscale_name = colorscale_name + '_r'
-    z = [[i for i in range(100)]]
-    fig = go.Figure(data=go.Heatmap(
-        z = z, colorscale=colorscale_name, showscale=False
-    ))
-    fig.update_layout(
-        margin=dict(l=2, r=1, t=0, b=2), xaxis=dict(showticklabels=False, showgrid=False, zeroline=False), yaxis=dict(showticklabels=False, showgrid=False, zeroline=False)
-    )
-    fig.add_shape(
-        type='rect', x0=0, y0=0, x1=1, y1=1, xref='paper', yref='paper', line=dict(color='black', width=1), fillcolor='rgba(0,0,0,0)'  # Make it transparent (or choose a background color)
-    )
-    return dcc.Graph(id='colorscale-preview', figure=fig, config={'displayModeBar': False, 'responsive': True}, style={'width': '95%', 'height':'2rem', 'marginTop':'0rem'})
+def generate_colorscale_dropdown_options(reverse_option): # Create options with colour previews
 
-colorscale_options = ['Plotly3', 'Viridis', 'Inferno', 'Magma', 'Plasma', 'Turbo', 'Bluered', 'Electric', 'Hot', 'Jet',
+    colorscale_options = ['Plotly3', 'Viridis', 'Inferno', 'Magma', 'Plasma', 'Turbo', 'Bluered', 'Electric', 'Hot', 'Jet',
                        'Rainbow', 'Thermal', 'Haline', 'Solar', 'Ice', 'Deep', 'Dense', 'Matter', 'Speed', 'AgSunset',
                        'SunsetDark', 'Aggrnyl', 'Puor', 'RdBu', 'Spectral', 'Balance', 'Delta', 'Curl', 'TealRose', 'Portland',
                        'PRGn', ]
+
+    def colorscale_to_css_gradient(colorscale_name, reverse_option): # to show the colours in the dropdown as well when selecting
+        colorscale_name = colorscale_name + '_r' if reverse_option else colorscale_name
+        colors = px.colors.get_colorscale(colorscale_name)
+        color_stops = ', '.join([f'{c[1]} {int(c[0]*100)}%' for c in colors])
+        return f'linear-gradient(to right, {color_stops})'
+
+    colorscale_dropdown_options = [
+        {
+            'label': html.Div([
+                html.Div(cs, style={'width': f'{max(len(cs) for cs in colorscale_options)*0.4}rem', 'marginRight': "0.25rem", 'marginLeft': '0rem', 'whiteSpace': 'nowrap'}),
+                html.Div(
+                    style={
+                        'width': '6.75rem',
+                        'height': '1.5rem',
+                        'marginLeft': '0.125rem',
+                        'background': colorscale_to_css_gradient(cs, reverse_option),
+                        'border': '0.05rem solid #ccc',
+                        'borderRadius': '0.05rem'
+                    }
+                ),
+            ], style={'display': 'flex', 'alignItems': 'center'}),
+            'value': cs
+        }
+        for cs in colorscale_options
+    ]
+
+    return colorscale_dropdown_options
 
 category_suffix, plate_variables_columns = '_encoded', ['row', 'column', 'position', 'index', 'well', 'well index', 'id']
 bootstrap_cols = 12
@@ -71,6 +86,7 @@ graph_options = {'Parallel Coordinates': 0, 'Scatter': 1, 'Heatmap': 2, 'Pie Cha
 graph_type_label_style = {'fontSize': '0.92rem', 'fontWeight': 'bold', 'marginTop':'0.75rem', 'marginBottom':'0.25rem'}
 pd.set_option('display.max_rows', None)
 pd.set_option('display.max_columns', None)
+colorscale_dropdown_options = generate_colorscale_dropdown_options(False) # for initialization
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True, assets_folder='assets')
 server=app.server # for Render deploy - this is for Render hosting
@@ -125,7 +141,7 @@ app.layout = dbc.Container([
                 ], style={'marginBottom': '0.5rem'}),
             ]),
             html.Div(id='heatmap-options', style={'display': 'none'}, children=[
-                html.H6('Heatmap Options', style=graph_type_label_style),
+                html.H6('Heatmap Options [plate]', style=graph_type_label_style),
                 html.Div(id='heatmap-color-variable-wrapper', children=[
                     generate_dropdown_control('heatmap-color-variable', None, 'Color Variable'),
                 ]),
@@ -141,7 +157,7 @@ app.layout = dbc.Container([
                 ),
             ]),
             html.Div(id='piechart-options', style={'display': 'none'}, children=[
-                html.H6('Pie Chart Options', style=graph_type_label_style),
+                html.H6('Pie Chart Options [plate]', style=graph_type_label_style),
                 html.Div(id='piechart-variables-wrapper', children=[
                     generate_dropdown_control('piechart-variables', None, 'Variables', multi=True, listbox=True),
                 ]),
@@ -201,13 +217,14 @@ app.layout = dbc.Container([
             html.Div([
                 dbc.Row([
                     dbc.Col(
-                        generate_dropdown_control('colorscale', colorscale_options, 'Color Scale', value=colorscale_options[0], clearable=False), width=9, style={'paddingRight': '0.1rem'}
+                        generate_dropdown_control('colorscale', colorscale_dropdown_options, 'Color Scale', value=colorscale_dropdown_options[0]['value'], clearable=False), width=10, \
+                        style={'paddingRight': '0.3rem', 'marginRight': '0rem'}
                     ),
                     dbc.Col(
-                        dbc.Checkbox(id='colorscale-reverse', label='_r', value=False, label_style={'verticalAlign':'bottom', 'paddingBottom':'0rem', 'marginBottom':'0rem'}), width=3, style={'display':'flex', 'alignItems':'flex-end', 'justifyContent': 'flex-start', 'paddingRight': 0, 'paddigLeft':0}
+                        dbc.Checkbox(id='colorscale-reverse', label='_r', value=False, label_style={'verticalAlign':'bottom', 'paddingBottom':'0rem', 'marginBottom':'0rem'}), width=2, \
+                        style={'fontSize': '1.0rem', 'display':'flex', 'alignItems':'flex-end', 'justifyContent': 'flex-start', 'paddingRight': '0', 'paddingLeft': '0'}
                     ),
                 ], style={'marginBottom':'0.2rem'}), # added
-                draw_colorscale_preview(colorscale_options[0], False)
             ]),
             html.Div(id='split-by-variable-wrapper', children=[
                 generate_dropdown_control('split-by-variable', None, 'Split by', value=None)
@@ -253,7 +270,7 @@ app.layout = dbc.Container([
         ], width=sidebar_width, style={'borderRight': '0.075rem solid #ddd', 'overflowY': 'scroll', 'height':'100vh', 'scrollbarwidth':'none', 'msOverflowStyle':'none'}),
         dbc.Col([
             html.Div(id='app-note', children=[
-                'App will spin down after 15 minutes of inactivity, requiring another 50-60 seconds to reactivate.  This is a work in progress; please report any issues/bugs (I expect a lot of them) at the ',
+                'App will spin down after 15 minutes of inactivity, requiring another 50-60 seconds to reactivate.  This is a work in progress; please report any issues/bugs (and I expect a lot of them) at the ',
                 html.A('GitHub Repository', href='https://github.com/trishia42/hte_graphingDashApp', target='_blank', style={'color': '#1f77b4', 'textDecoration': 'underline'}), '.'
                 ],
                 style={'backgroundColor': '#f8f9fa','padding': '0.125rem 0.125rem', 'marginBottom': '0.3rem', 'marginTop': '0.3rem', 'fontSize': '0.75rem', 'width': '100%','fontStyle':'italic'}),
@@ -299,6 +316,7 @@ app.layout = dbc.Container([
     ])
 ], fluid=True)
 
+number_of_UI_interactivity_outputs = 28
 #<editor-fold desc="**app.callback => UI Interactivity">
 @app.callback(
     Output('parallel-options', 'style'),
@@ -307,7 +325,9 @@ app.layout = dbc.Container([
     Output('piechart-options', 'style'),
     Output('barchart-options', 'style'),
     Output('dumbbell-options', 'style'),
-    Output('colorscale-preview', 'figure'),
+    Output('colorscale', 'options', allow_duplicate=True),
+    Output('colorscale', 'value', allow_duplicate=True),
+
     Output('multiple-dataframes-id-column', 'disabled', allow_duplicate=True),
     Output('multiple-dataframes-id-column', 'value', allow_duplicate=True),
     Output('scatter-x-variable', 'value', allow_duplicate=True),
@@ -330,8 +350,10 @@ app.layout = dbc.Container([
     Output({'type': 'listbox', 'subtype': 'piechart-add-column-variable'}, 'options', allow_duplicate=True),
     Output({'type': 'listbox', 'subtype': 'piechart-add-column-variable'}, 'value', allow_duplicate=True),
 
+    Output('status-bar', 'children', allow_duplicate=True),
+
     Input('graph-selection', 'value'),
-    Input('colorscale', 'value'),
+    State('colorscale', 'value'),
     Input('colorscale-reverse', 'value'),
     State('dataframe-store', 'data'),
     State('multiple-dataframes-id-column', 'options'),
@@ -350,14 +372,21 @@ app.layout = dbc.Container([
 def UIInteractivity(graph_selection, colorscale_name, colorscale_reverse, stored_dataframe, multiple_dataframes_id_column_options, scatter_x_variable, scatter_x_subplots_variables, \
                     scatter_z_variable, multiple_dataframes_id_column_value, multiple_dataframes_handling, df_row_variable, df_column_variable, df_categorical_columns):
 
-    parallel_output, scatter_output, heatmap_output, piechart_output, barchart_output, dumbbell_output, colorscale_preview, multiple_dataframes_id_column_state, multiple_dataframes_id_column_value, \
-        scatter_x_variable_output, scatter_x_subplots_variables_output, scatter_z_variable_output, multi_series_names_value_output, multi_series_names_disabled_output, additional_row_columns_list, \
-        additional_column_columns_list = [dash.no_update]*16
+    #parallel_output, scatter_output, heatmap_output, piechart_output, barchart_output, dumbbell_output, colorscale_dropdown_options, colorscale_dropdown_value, multiple_dataframes_id_column_state, multiple_dataframes_id_column_value, \
+    #    scatter_x_variable_output, scatter_x_subplots_variables_output, scatter_z_variable_output, multi_series_names_value_output, multi_series_names_disabled_output, additional_row_columns_list, \
+    #    additional_column_columns_list = [dash.no_update]*number_of_UI_interactivity_outputs
+
+    parallel_output, scatter_output, heatmap_output, piechart_output, barchart_output, dumbbell_output, colorscale_dropdown_options, colorscale_dropdown_value, multiple_dataframes_id_column_state, \
+        multiple_dataframes_id_column_value,scatter_x_variable_output, scatter_x_subplots_variables_output, scatter_z_variable_output, multi_series_names_value_output, multi_series_names_disabled_output, \
+        additional_row_columns_list, additional_column_columns_list = [dash.no_update]*(number_of_UI_interactivity_outputs - 11)
+
+    additional_row_column_changed, status_output = False, dash.no_update
 
     try:
         trigger = ctx.triggered_id
-        if trigger in ('colorscale', 'colorscale-reverse'):
-            colorscale_preview = draw_colorscale_preview(colorscale_name, colorscale_reverse).figure
+        if trigger == 'colorscale-reverse':
+            colorscale_dropdown_value = colorscale_name
+            colorscale_dropdown_options = generate_colorscale_dropdown_options(colorscale_reverse)
         elif trigger == 'graph-selection':
             def show(name):
                 return {'display': 'block'} if graph_selection == name else {'display': 'none'}
@@ -374,9 +403,10 @@ def UIInteractivity(graph_selection, colorscale_name, colorscale_reverse, stored
                     multiple_dataframes_id_column_value = 'Row/Column' if any(opt['value'] == 'Row/Column' for opt in multiple_dataframes_id_column_options) else None
                     row_consistent_columns, column_consistent_columns = get_consistent_columns(next(iter((split_dataframe(pd.read_json(io.StringIO(stored_dataframe['data']), orient='split'), multiple_dataframes_id_column_value)).values())) if multiple_dataframes_handling == 'First' else pd.read_json(io.StringIO(stored_dataframe['data']), orient='split').copy(), df_categorical_columns, df_row_variable, df_column_variable)
                     additional_row_columns_list, additional_column_columns_list = [{'label': option, 'value': option} for option in row_consistent_columns], [{'label': option, 'value': option} for option in column_consistent_columns]
+                    additional_row_column_changed = True
             else:
                 multiple_dataframes_id_column_state = False
-                multiple_dataframes_id_column_value = None
+                multiple_dataframes_id_column_value = dash.no_update
         elif trigger == 'scatter-x-variable' or trigger == 'scatter-z-variable':
             if scatter_x_variable is not None or scatter_z_variable is not None:
                 scatter_x_subplots_variables_output = None
@@ -391,14 +421,18 @@ def UIInteractivity(graph_selection, colorscale_name, colorscale_reverse, stored
             if multiple_dataframes_id_column_value is not None and graph_selection in ['Heatmap', 'Pie Charts'] and stored_dataframe:
                 row_consistent_columns, column_consistent_columns = get_consistent_columns(next(iter((split_dataframe(pd.read_json(io.StringIO(stored_dataframe['data']), orient='split'), multiple_dataframes_id_column_value)).values())) if multiple_dataframes_handling == 'First' else pd.read_json(io.StringIO(stored_dataframe['data']), orient='split').copy(), df_categorical_columns, df_row_variable, df_column_variable)
                 additional_row_columns_list, additional_column_columns_list = [{'label': option, 'value': option} for option in row_consistent_columns], [{'label': option, 'value': option} for option in column_consistent_columns]
+                additional_row_column_changed = True
 
-        return parallel_output, scatter_output, heatmap_output, piechart_output, barchart_output, dumbbell_output, colorscale_preview, multiple_dataframes_id_column_state, \
+        return parallel_output, scatter_output, heatmap_output, piechart_output, barchart_output, dumbbell_output, colorscale_dropdown_options, colorscale_dropdown_value, multiple_dataframes_id_column_state, \
             multiple_dataframes_id_column_value, scatter_x_variable_output, scatter_x_subplots_variables_output, scatter_z_variable_output, multi_series_names_value_output, multi_series_names_disabled_output, \
-            str(uuid.uuid4()), additional_row_columns_list, [], str(uuid.uuid4()), additional_column_columns_list, [], str(uuid.uuid4()), additional_row_columns_list, [], str(uuid.uuid4()), additional_column_columns_list, []
+            str(uuid.uuid4()) if additional_row_column_changed else dash.no_update, additional_row_columns_list, [] if additional_row_column_changed else dash.no_update, \
+            str(uuid.uuid4()) if additional_row_column_changed else dash.no_update, additional_column_columns_list, [] if additional_row_column_changed else dash.no_update, \
+            str(uuid.uuid4()) if additional_row_column_changed else dash.no_update, additional_row_columns_list, [] if additional_row_column_changed else dash.no_update, \
+            str(uuid.uuid4()) if additional_row_column_changed else dash.no_update, additional_column_columns_list, [] if additional_row_column_changed else dash.no_update, status_output
 
     except Exception as e:
         exception_message = generate_exception_message(e)
-        return [dash.no_update] * (14 + 12 - 1) + [exception_message]
+        return [dash.no_update] * (number_of_UI_interactivity_outputs  - 1) + [exception_message]
 
 number_of_load_data_outputs = 66 + 42
 #<editor-fold desc="**app.callback => Handle uploads/test data and programmatic changes to data table">
