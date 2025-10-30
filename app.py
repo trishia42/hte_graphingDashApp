@@ -711,24 +711,27 @@ def load_data(upload_contents, load_filename, n_clicks_test_data, n_clicks_add_r
             multiple_dataframes_id_col_state = True
             if any(opt['value'] == 'Row/Column' for opt in multiple_dataframes_id_col_options):
                 multiple_dataframes_id_col_value = 'Row/Column'
+        elif trigger == 'test-data':
+            if any(opt['value'] == 'Row/Column' for opt in multiple_dataframes_id_col_options):
+                multiple_dataframes_id_col_value = 'Row/Column'
 
         return (
             # data
             stored_dataframe, f'Current file: {load_filename}' if new_df else dash.no_update, original_columns, df_row_variable, df_column_variable, numeric_columns, categorical_columns,
             # parallel
             str(uuid.uuid4()), all_columns_list, [] if new_df else dash.no_update,
-            str(uuid.uuid4()), numerical_columns_list, next((opt['value'] for opt in numerical_columns_list if opt['value'].lower().startswith('yield')), None) if new_df else dash.no_update,
+            str(uuid.uuid4()), numerical_columns_list, next((opt['value'] for opt in numerical_columns_list if opt['value'].lower().startswith(('yield', 'product'))), None) if new_df else dash.no_update,
             # scatter
             str(uuid.uuid4()), all_columns_list, next((opt['value'] for opt in all_columns_list if opt['value'].lower() == 'column'), all_columns_list[0]['value']) if (new_df or trigger == 'add-row-column-button') else dash.no_update,
             str(uuid.uuid4()), all_columns_list, [] if new_df else dash.no_update,
             str(uuid.uuid4()), all_columns_list, next((opt['value'] for opt in all_columns_list if opt['value'].lower() == 'row'), all_columns_list[0]['value']) if (new_df or trigger == 'add-row-column-button') else dash.no_update, \
             str(uuid.uuid4()), all_columns_list, None if new_df else dash.no_update,
             False if not datatable_modified else dash.no_update,
-            str(uuid.uuid4()), all_columns_list, next((opt['value'] for opt in all_columns_list if opt['value'].lower().startswith('yield')), None) if new_df else dash.no_update,
+            str(uuid.uuid4()), all_columns_list, next((opt['value'] for opt in all_columns_list if opt['value'].lower().startswith(('yield', 'product'))), None) if new_df else dash.no_update,
             str(uuid.uuid4()), all_columns_list, None if new_df else dash.no_update,
-            str(uuid.uuid4()), all_columns_list, next((opt['value'] for opt in all_columns_list if opt['value'].lower().startswith('yield')), None) if new_df else dash.no_update,
+            str(uuid.uuid4()), all_columns_list, next((opt['value'] for opt in all_columns_list if opt['value'].lower().startswith(('yield', 'product'))), None) if new_df else dash.no_update,
             # heatmap
-            str(uuid.uuid4()), all_columns_list, next((opt['value'] for opt in all_columns_list if opt['value'].lower().startswith('yield')), all_columns_list[0]['value']) if new_df else dash.no_update,
+            str(uuid.uuid4()), all_columns_list, next((opt['value'] for opt in all_columns_list if opt['value'].lower().startswith(('yield', 'product'))), all_columns_list[0]['value']) if new_df else dash.no_update,
             str(uuid.uuid4()), additional_row_columns_list, [] if new_df else dash.no_update,
             str(uuid.uuid4()), additional_column_columns_list, [] if new_df else dash.no_update,
             # piecharts
@@ -842,6 +845,7 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
 
     trigger, figs, graphs, grid, grid_columns, graph_container_style, status, dfs_delimiter = None, [], [], [], 1, {'display': 'none'}, '', '|=%' # we want to use something that will not be used
     dfs, number_of_figures, number_of_figure_rows, number_of_figure_columns, viewport_maximum_width, viewport_maximum_height = {}, 0, 0, 0, 80, 90
+
     try:
         trigger = ctx.triggered_id
         if trigger == 'datatable-modified-store':
@@ -933,8 +937,22 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
                                                                              number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated parallel coordinates graph.'
         elif (graph_selection == 'Scatter'):
-            if not scatter_y_variable and (not scatter_x_variable or not scatter_x_subplots_variables):
-                status = 'Need to select x and y variables.' if trigger == 'generate_button' else ''
+
+            if not scatter_y_variable:
+                print("no y")
+            else:
+                print("y = ", scatter_y_variable)
+            if not scatter_x_variable:
+                print("no x")
+            else:
+                print("x = ", scatter_x_variable)
+            if not scatter_x_subplots_variables:
+                print("no scatter_x_subplots")
+            else:
+                print("x_subplots = ", scatter_x_subplots_variables)
+
+            if not scatter_y_variable or (not scatter_x_variable and not scatter_x_subplots_variables):
+                status = 'Need to select x and y variables.' if trigger == 'generate-button' else ''
             else:
                 figs = generate_scatter_bubble_graph(dfs, scatter_x_variable, scatter_x_subplots_variables, scatter_y_variable, scatter_z_variable, scatter_surface, scatter_size_variable, scatter_symbol_variable, \
                                                      scatter_color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
@@ -1003,6 +1021,7 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
                                                                  split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated dumbbell treillis graph.'
     except Exception as e:
+        print("exc here")
         exception_message = 'Exception in generating ' + graph_selection + ' graph: ' + generate_exception_message(e)
         return [dash.no_update] * (number_of_graph_outputs - 1) + [exception_message]
 

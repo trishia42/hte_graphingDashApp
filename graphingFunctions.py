@@ -237,11 +237,15 @@ def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_varia
                 add_hover_and_custom_data(df_i, custom_data, hover_lines, 'append', symbol_variable, True, added_labels=added_labels)
             else:
                 hover_lines.append(f'{symbol_variable}: %{{text}}')
+                added_labels.add(symbol_variable)
             text_data = df_i[symbol_variable]
         else:
             text_data = df_i[x_variable] if x_variable else None
 
         if x_variables_subplots:
+            for var in x_variables_subplots:
+                if var not in added_labels:
+                    add_hover_and_custom_data(df_i, custom_data, hover_lines, 'append', var, is_numeric_dtype(df_i[var]), added_labels=added_labels)
             if len(x_variables_subplots) <= subplots_max_cols:
                 subplots_rows, subplots_columns = 1, len(x_variables_subplots)
             else:
@@ -249,6 +253,9 @@ def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_varia
             fig = make_subplots(rows=subplots_rows, cols=subplots_columns)
         else:
             fig = go.Figure()
+
+        print("custom_data = ", custom_data)
+        print("hover_lines = ", hover_lines)
 
         marker_dict.update(dict(size=df_i['marker_size'], symbol=df_i['marker_symbol']))
         if color_variable:
