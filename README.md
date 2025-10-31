@@ -1,3 +1,3 @@
 Simple Dash app implementing the plotly library to plot data in various ways; geared towards reaction screenings in a chemistry context.  Currently hosted on a free tier on Render, located at https://hte-graphingdashapp.onrender.com; please note that due to being hosted on the free tier of the platform, a 50-60 second delay is to be expected upon first loading the page and that the application will 'spin down' after 15 minutes of inactivity, requiring another 50-60 seconds to 'spin back up'.
 
-Work in progress - first time writing up something like this and first time learning Python.
+Work in progress - first time writing up something like this and first time learning Python.  The rendering into the Dash app will most likely probably look right on standard monitors; I hate html and css and I'm not sure how to fix it despite trying a couple of times.
