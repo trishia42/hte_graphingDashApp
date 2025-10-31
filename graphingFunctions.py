@@ -254,9 +254,6 @@ def generate_scatter_bubble_graph(dfs, x_variable, x_variables_subplots, y_varia
         else:
             fig = go.Figure()
 
-        print("custom_data = ", custom_data)
-        print("hover_lines = ", hover_lines)
-
         marker_dict.update(dict(size=df_i['marker_size'], symbol=df_i['marker_symbol']))
         if color_variable:
             if is_numeric_dtype(df_i[color_variable]):
@@ -1031,8 +1028,13 @@ def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, ba
 
                 # Build hovertemplate
                 hover_template = ((f'Series {series_index + 1}<br>' if number_of_dfs > 1 else '') + f'{barchart_x}: %{{x}}<br>{var}: %{{y}}')
+                customdata_columns = []
+                if barchart_pattern:
+                    customdata_columns.append(barchart_pattern)
+                    hover_template += f'<br>{barchart_pattern}: %{{customdata[0]}}'
                 if barchart_group_vars_by:
-                    hover_template += f'<br>{barchart_group_vars_by}: %{{customdata[0]}}'
+                    customdata_columns.append(barchart_group_vars_by)
+                    hover_template += f'<br>{barchart_group_vars_by}: %{{customdata[1]}}' if barchart_pattern else f'<br>{barchart_group_vars_by}: %{{customdata[0]}}'
                 hover_template += '<extra>DF</extra>' if number_of_dfs > 1 else '<extra></extra>'
 
                 if barmode == 'stack':
@@ -1053,7 +1055,7 @@ def generate_barchart_graph(dfs, barchart_x, barchart_vars, barchart_pattern, ba
                     offsetgroup=offsetgroup_val,
                     legendgroup=f'S{series_index + 1}',
                     legendrank=2 * (series_index + 1) if number_of_dfs > 1 else None,
-                    customdata=df_i_sorted[[barchart_group_vars_by]].to_numpy() if barchart_group_vars_by else None,
+                    customdata=df_i_sorted[customdata_columns].to_numpy() if customdata_columns else None,
                     hovertemplate=hover_template,
                     #showlegend=True,
                     showlegend=False if number_of_dfs == 1 and len(barchart_vars) == 1 else True
@@ -1135,7 +1137,7 @@ def generate_dumbbell_graph(dfs, x_variable, y_variable, color_variable, symbol_
         global_marker_symbol_map = set_global_map(dfs, symbol_variable, None, plotly_all_marker_symbols)
 
     global_yaxis_dict = get_axis_dict(dfs, -1, y_variable, axis_tickstep, plate_rows_as_alpha, plate_variables_columns, axis_tickstyle, category_suffix, is_y_variable=True, axis_padding=0.5)
-    vars_to_group_over = list(dict.fromkeys([v for v in [color_variable, symbol_variable] + (x_grouped_over_vars or []) if v is not None]))
+    vars_to_group_over = list(dict.fromkeys([v for v in ([color_variable, symbol_variable] + (x_grouped_over_vars or [])) if v is not None and v != x_variable]))
 
     plots = []
     for graph_index, (key, df_i) in enumerate(dfs.items()):
@@ -1151,7 +1153,6 @@ def generate_dumbbell_graph(dfs, x_variable, y_variable, color_variable, symbol_
             if not isinstance(group_keys, tuple):
                 group_keys = (group_keys,)
             group_labels = '<br>'.join([f"{var}: {val}" for var, val in zip(vars_to_group_over, group_keys)])
-
             line_color = line_color = global_marker_color_map[sub_df[color_variable].iloc[0]] if (color_variable and global_marker_color_map) else 'black'
             fig.add_trace(go.Scatter( # this adds the lines
                 x=sub_df[x_variable],

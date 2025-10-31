@@ -271,7 +271,7 @@ app.layout = dbc.Container([
         ], width=sidebar_width, style={'borderRight': '0.075rem solid #ddd', 'overflowY': 'scroll', 'height':'100vh', 'scrollbarwidth':'none', 'msOverflowStyle':'none'}),
         dbc.Col([
             html.Div(id='app-note', children=[
-                'App will spin down after 15 minutes of inactivity, requiring another 50-60 seconds to reactivate.  This is a work in progress; please report any issues/bugs (and I expect a lot of them) at the ',
+                'App will spin down after 15 minutes of inactivity, requiring another 50-60 seconds to reactivate - best viewed on standard screens.  This is a work in progress; please report any issues/bugs (and I expect a lot of them) at the ',
                 html.A('GitHub Repository', href='https://github.com/trishia42/hte_graphingDashApp', target='_blank', style={'color': '#1f77b4', 'textDecoration': 'underline'}), '.'
                 ],
                 style={'backgroundColor': '#f8f9fa','padding': '0.125rem 0.125rem', 'marginBottom': '0.3rem', 'marginTop': '0.3rem', 'fontSize': '0.75rem', 'width': '100%','fontStyle':'italic'}),
@@ -740,14 +740,14 @@ def load_data(upload_contents, load_filename, n_clicks_test_data, n_clicks_add_r
             str(uuid.uuid4()), additional_row_columns_list, [] if new_df else dash.no_update,
             str(uuid.uuid4()), additional_column_columns_list, [] if new_df else dash.no_update,
             # bars
-            str(uuid.uuid4()), all_columns_list, None if new_df else dash.no_update,
-            str(uuid.uuid4()), numerical_columns_list, [] if new_df else dash.no_update,
+            str(uuid.uuid4()), all_columns_list, next((opt['value'] for opt in all_columns_list if opt['value'].lower().startswith(('id'))), None) if new_df else dash.no_update,
+            str(uuid.uuid4()), numerical_columns_list, next((opt['value'] for opt in numerical_columns_list if opt['value'].lower().startswith(('yield', 'product'))), None) if new_df else dash.no_update,
             str(uuid.uuid4()), categorical_columns_list, None if new_df else dash.no_update,
             str(uuid.uuid4()), categorical_columns_list, None if new_df else dash.no_update,
             str(uuid.uuid4()), dash.no_update, 'Group' if new_df else dash.no_update,
             # dumbbell
             str(uuid.uuid4()), categorical_columns_list, None if new_df else dash.no_update,
-            str(uuid.uuid4()), numerical_columns_list, None if new_df else dash.no_update,
+            str(uuid.uuid4()), numerical_columns_list, next((opt['value'] for opt in numerical_columns_list if opt['value'].lower().startswith(('yield', 'product'))), None) if new_df else dash.no_update,
             str(uuid.uuid4()), categorical_columns_list, None if new_df else dash.no_update,
             str(uuid.uuid4()), categorical_columns_list, None if new_df else dash.no_update,
             str(uuid.uuid4()), categorical_columns_list, None if new_df else dash.no_update,
@@ -937,20 +937,6 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
                                                                              number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated parallel coordinates graph.'
         elif (graph_selection == 'Scatter'):
-
-            if not scatter_y_variable:
-                print("no y")
-            else:
-                print("y = ", scatter_y_variable)
-            if not scatter_x_variable:
-                print("no x")
-            else:
-                print("x = ", scatter_x_variable)
-            if not scatter_x_subplots_variables:
-                print("no scatter_x_subplots")
-            else:
-                print("x_subplots = ", scatter_x_subplots_variables)
-
             if not scatter_y_variable or (not scatter_x_variable and not scatter_x_subplots_variables):
                 status = 'Need to select x and y variables.' if trigger == 'generate-button' else ''
             else:
@@ -1021,7 +1007,6 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
                                                                  split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated dumbbell treillis graph.'
     except Exception as e:
-        print("exc here")
         exception_message = 'Exception in generating ' + graph_selection + ' graph: ' + generate_exception_message(e)
         return [dash.no_update] * (number_of_graph_outputs - 1) + [exception_message]
 
