@@ -154,8 +154,8 @@ def get_axis_dict(dfs, df_index, column_name, tickstep, plate_rows_as_alpha, pla
         if all(is_numeric_dtype(df[column_name]) for df in dfs.values()):
             min_value = (list(dfs.values())[df_index][column_name].min() if column_name.lower() in plate_variables_columns and df_index >=0 else min(df[column_name].min() for df in dfs.values() if column_name in df.columns)) if not min_value else min_value
             max_value = (list(dfs.values())[df_index][column_name].max() if column_name.lower() in plate_variables_columns and df_index >=0 else max(df[column_name].max() for df in dfs.values() if column_name in df.columns)) if not max_value else max_value
-            axis_min = min_value if column_name.lower() in plate_variables_columns else (0 if (min_value > 0 and min_zero == True) else math.floor(min_value / tickstep) * tickstep)
-            axis_max = max_value if column_name.lower() in plate_variables_columns else math.ceil(max_value/ tickstep) * tickstep
+            axis_min = min_value if column_name.lower() in plate_variables_columns else (0 if (min_value > 0 and min_zero == True) else math.floor((min_value + 0.000000001) / tickstep) * tickstep)
+            axis_max = max_value if column_name.lower() in plate_variables_columns else math.ceil((max_value + 0.000000001) / tickstep) * tickstep
             if column_name.lower() in plate_variables_columns:
                 axis_tickvals = (list(dfs.values())[df_index][column_name].dropna().unique().tolist() if df_index >= 0 else list({val for df in dfs.values() if column_name in df.columns for val in df[column_name].dropna().unique()}))
                 axis_ticktext = [chr(64 + int(v)) if float(v).is_integer() else str(v) for v in axis_tickvals] if (column_name.lower() == 'row' or column_name.lower() == 'row_numeric') and plate_rows_as_alpha else [str(int(v)) for v in axis_tickvals]
