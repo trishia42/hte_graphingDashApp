@@ -933,15 +933,16 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
             if not parallel_variables or not parallel_color_variable:
                 status = 'Need to select parallel variables and color variable.' if trigger == 'generate-button' else ''
             else:
-                figs = generate_parallel_coordinates_graph(dfs, parallel_variables, parallel_color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, \
+                figs = generate_parallel_coordinates_graph(dfs, ensure_list(parallel_variables), parallel_color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, \
                                                                              number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated parallel coordinates graph.'
         elif (graph_selection == 'Scatter'):
             if not scatter_y_variable or (not scatter_x_variable and not scatter_x_subplots_variables):
                 status = 'Need to select x and y variables.' if trigger == 'generate-button' else ''
             else:
-                figs = generate_scatter_bubble_graph(dfs, scatter_x_variable, scatter_x_subplots_variables, scatter_y_variable, scatter_z_variable, scatter_surface, scatter_size_variable, scatter_symbol_variable, \
-                                                     scatter_color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
+                figs = generate_scatter_bubble_graph(dfs, scatter_x_variable, endure_list(scatter_x_subplots_variables), scatter_y_variable, scatter_z_variable, scatter_surface, scatter_size_variable, \
+                                                     scatter_symbol_variable, scatter_color_variable, colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, number_of_dfs, \
+                                                     mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated scatter/bubble graph - 3d ignored when doing subplots.' if scatter_x_subplots_variables and scatter_z_variable else 'Generated scatter/bubble graph.'
         elif (graph_selection == 'Heatmap' or graph_selection == 'Pie Charts'):
             if (df_row_variable == None) or (df_column_variable == None):
@@ -959,8 +960,8 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
                 if not heatmap_color_variable:
                     status = 'Need to select heatmap color variable.' if trigger == 'generate-button' else ''
                 else:
-                    figs, number_of_figure_rows, number_of_figure_columns = generate_heatmap_graph(dfs, df_row_variable, df_column_variable, heatmap_color_variable, heatmap_additional_row_variable, \
-                                                                                           heatmap_additional_column_variable, heatmap_smooth, colorscale, split_by_variable, plate_rows_as_alpha, \
+                    figs, number_of_figure_rows, number_of_figure_columns = generate_heatmap_graph(dfs, df_row_variable, df_column_variable, heatmap_color_variable, ensure_list(heatmap_additional_row_variable), \
+                                                                                           ensure_list(heatmap_additional_column_variable), heatmap_smooth, colorscale, split_by_variable, plate_rows_as_alpha, \
                                                                                            multiple_dataframes_id_column, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                     status = 'Generated heatmap graph.'
             else:  # so Pie Charts
@@ -989,21 +990,23 @@ def generate_graph(generate_n_clicks, datatable_modified, stored_dataframe, grap
 
                     if valid_normalization_value:
                         status = 'Generated pie charts.'
-                        figs, number_of_figure_rows, number_of_figure_columns = generate_piecharts_graph(dfs, df_row_variable, df_column_variable,  piechart_variables, piechart_additional_row_variable, piechart_additional_column_variable, piechart_normalization_index, \
-                                                        normalization_value, piechart_donut, piechart_cakeplots, colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, number_of_dfs, \
-                                                        multiple_dataframes_reverse, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
+                        figs, number_of_figure_rows, number_of_figure_columns = generate_piecharts_graph(dfs, df_row_variable, df_column_variable, ensure_list(piechart_variables), \
+                                                        ensure_list(piechart_additional_row_variable), ensure_list(piechart_additional_column_variable), piechart_normalization_index, \
+                                                        normalization_value, piechart_donut, piechart_cakeplots, colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, \
+                                                        number_of_dfs, multiple_dataframes_reverse, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
         elif (graph_selection == 'Bar Chart'):
             if not barchart_x_variable or not barchart_variables:
                 status = 'Need to select x and y variables.' if trigger == 'generate-button' else ''
             else:
-                figs = generate_barchart_graph(dfs, barchart_x_variable, barchart_variables, barchart_pattern_variable, barchart_group_variables_by, barchart_barmode_option, \
-                                                colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, multiple_dataframes_reverse, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
+                figs = generate_barchart_graph(dfs, barchart_x_variable, ensure_list(barchart_variables), barchart_pattern_variable, barchart_group_variables_by, barchart_barmode_option, \
+                                                colorscale, split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, multiple_dataframes_reverse, number_of_dfs, mdi_single_df, \
+                                                graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated bar chart graph.'
         elif (graph_selection == 'Dumbbell Treillis'):
             if not dumbbell_x_variable or not dumbbell_y_variable or not (dumbbell_grouped_variables or dumbbell_color_variable or dumbbell_symbol_variable):
                 status = 'Need to select x, y, and grouped over variables for dumbbell treillis plot.' if trigger == 'generate-button' else ''
             else:
-                figs = generate_dumbbell_graph(dfs, dumbbell_x_variable, dumbbell_y_variable, dumbbell_color_variable, dumbbell_symbol_variable, dumbbell_grouped_variables, colorscale, \
+                figs = generate_dumbbell_graph(dfs, dumbbell_x_variable, dumbbell_y_variable, dumbbell_color_variable, dumbbell_symbol_variable, ensure_list(dumbbell_grouped_variables), colorscale, \
                                                                  split_by_variable, plate_rows_as_alpha, multiple_dataframes_id_column, number_of_dfs, mdi_single_df, graph_title, category_suffix, plate_variables_columns)
                 status = 'Generated dumbbell treillis graph.'
     except Exception as e:

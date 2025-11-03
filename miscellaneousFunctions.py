@@ -226,3 +226,9 @@ def draw_colorscale_preview(colorscale_name, reverse_option): # previously used 
         type='rect', x0=0, y0=0, x1=1, y1=1, xref='paper', yref='paper', line=dict(color='black', width=1), fillcolor='rgba(0,0,0,0)'  # Make it transparent (or choose a background color)
     )
     return dcc.Graph(id='colorscale-preview', figure=fig, config={'displayModeBar': False, 'responsive': True}, style={'width': '95%', 'height':'2rem', 'marginTop':'0rem'})
+
+def ensure_list(item):
+    if item is None:
+        return []
+    return item if isinstance(item, list) else [item]
+
